@@ -8,22 +8,24 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "active_queue.hpp"
+#include <pfs/dynamic_library.hpp>
 // #include <pfs/cxxlang.hpp>
 // #include <pfs/operationsystem.hpp>
 // #include <pfs/bits/timer.h>
 // #include <pfs/type_traits.hpp>
 // #include <pfs/atomic.hpp>
+#include <pfs/sigslot.hpp>
 #include <deque>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
-// #include <pfs/memory.hpp>
 #include <string>
 // #include <pfs/stringlist.hpp>
-// #include <pfs/dynamic_library.hpp>
+
 // #include <pfs/active_map.hpp>
 // #include <pfs/logger.hpp>
-// #include <pfs/sigslot.hpp>
+
 // #include <pfs/safeformat.hpp>
 // #include <pfs/datetime.hpp>
 // #include <pfs/chrono.hpp>
@@ -115,52 +117,52 @@ struct modulus
 //         , void
 //         , AssociativeContainer
 //         , BasicLockable> timer_callback_map;
-//
-//     typedef sigslot<callback_queue_type, BasicLockable> sigslot_ns;
-//
-//     typedef StringType      string_type;
+
+    using sigslot_ns = sigslot<callback_queue_type, BasicLockable>;
+
+    using string_type = StringType;
 //     typedef log<sigslot_ns, SequenceContainer> log_ns;
 //     typedef typename log_ns::logger logger_type;
-//     typedef typename sigslot_ns::template signal1<void *> emitter_type;
-//
-//     typedef void (basic_module::* detector_handler)(void *);
-//     typedef struct { int id; void * emitter; }            emitter_mapper_pair;
-//     typedef struct { int id; detector_handler detector; } detector_mapper_pair;
-//
-//     typedef basic_module * (* module_ctor_t)(dispatcher * pdisp, char const * name, void *);
-//     typedef void  (* module_dtor_t)(basic_module *);
-//
-//     struct detector_pair
-//     {
-//         basic_module *   mod;
-//         detector_handler detector;
-//
-//         detector_pair () : mod(0), detector(0) {}
-//         detector_pair (basic_module * p, detector_handler d) : mod(p), detector(d) {}
-//     };
-//
-//     struct module_spec
-//     {
-//         shared_ptr<basic_module>    pmodule;
-//         shared_ptr<dynamic_library> pdl;
-//     };
-//
-//     struct module_deleter
-//     {
-//         module_dtor_t _deleter;
-//
-//         module_deleter (module_dtor_t deleter)
-//             : _deleter(deleter)
-//         {}
-//
-//         void operator () (basic_module * p) const
-//         {
-//             _deleter(p);
-//         }
-//     };
-//
-//     struct api_item_type;
-//
+    using emitter_type  = typename sigslot_ns::template signal<> ;
+
+    typedef void (basic_module::* detector_handler)(void *);
+    typedef struct { int id; void * emitter; }            emitter_mapper_pair;
+    typedef struct { int id; detector_handler detector; } detector_mapper_pair;
+
+    typedef basic_module * (* module_ctor_t)(dispatcher * pdisp, char const * name, void *);
+    typedef void  (* module_dtor_t)(basic_module *);
+
+    struct detector_pair
+    {
+        basic_module *   mod;
+        detector_handler detector;
+
+        detector_pair () : mod(0), detector(0) {}
+        detector_pair (basic_module * p, detector_handler d) : mod(p), detector(d) {}
+    };
+
+    struct module_spec
+    {
+        std::shared_ptr<basic_module>    pmodule;
+        std::shared_ptr<dynamic_library> pdl;
+    };
+
+    struct module_deleter
+    {
+        module_dtor_t _deleter;
+
+        module_deleter (module_dtor_t deleter)
+            : _deleter(deleter)
+        {}
+
+        void operator () (basic_module * p) const
+        {
+            _deleter(p);
+        }
+    };
+
+    struct api_item_type;
+
 //     typedef AssociativeContainer<int, api_item_type *>     api_map_type;
 //     typedef AssociativeContainer<string_type, module_spec> module_spec_map_type;
 //     typedef int (basic_module::*thread_function)();

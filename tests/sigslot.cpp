@@ -12,13 +12,13 @@
 #include "pfs/sigslot.hpp"
 
 ////////////////////////////////////////////////////////////////////////////////
-//
+// Direct signals / slots
 ////////////////////////////////////////////////////////////////////////////////
 namespace t0 {
 
 using sigslot = pfs::sigslot<>;
 
-class A : public sigslot::has_slots
+class A : public sigslot::slot_holder
 {
 public:
     int counter = 0;
@@ -32,7 +32,7 @@ public:
 
 } // namespace t0
 
-TEST_CASE("Direct slots") {
+TEST_CASE("Direct signals / slots") {
 
     using t0::A;
     using t0::sigslot;
@@ -53,20 +53,25 @@ TEST_CASE("Direct slots") {
     sig2(42, 3.14f);
     sig3(42, 3.14f, "hello");
 
-//    sigslot::emit_signal(sig0);
-//     sigslot::emit_signal(sig1, 10);
     CHECK(a.counter == 4);
+
+    sigslot::emit_signal(sig0);
+    sigslot::emit_signal(sig1, 42);
+    sigslot::emit_signal(sig2, 42, 3.14f);
+    sigslot::emit_signal(sig3, 42, 3.14f, "hello");
+
+    CHECK(a.counter == 8);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-//
+// Queued signals / slots
 ////////////////////////////////////////////////////////////////////////////////
 namespace t1 {
 
 using active_queue = pfs::active_queue<>;
 using sigslot = pfs::sigslot<active_queue>;
 
-class B : public sigslot::has_queued_slots
+class B : public sigslot::queued_slot_holder
 {
 public:
     int counter = 0;
@@ -80,7 +85,7 @@ public:
 
 } // namespace t1
 
-TEST_CASE("Queued slots") {
+TEST_CASE("Queued signals / slots") {
     using t1::B;
     using t1::sigslot;
 
@@ -101,11 +106,24 @@ TEST_CASE("Queued slots") {
     sig3(42, 3.14f, "hello");
 
     CHECK(b.callback_queue().count() == 4);
+    CHECK(b.counter == 0);
 
     b.callback_queue().call_all();
 
-
-//     sigslot::emit_signal(sig0);
-//     sigslot::emit_signal(sig1, 10);
+    CHECK(b.callback_queue().count() == 0);
     CHECK(b.counter == 4);
+
+    sigslot::emit_signal(sig0);
+    sigslot::emit_signal(sig1, 42);
+    sigslot::emit_signal(sig2, 42, 3.14f);
+    sigslot::emit_signal(sig3, 42, 3.14f, "hello");
+
+    CHECK(b.callback_queue().count() == 4);
+    CHECK(b.counter == 4);
+
+    b.callback_queue().call_all();
+
+    CHECK(b.callback_queue().count() == 0);
+
+    CHECK(b.counter == 8);
 }

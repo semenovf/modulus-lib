@@ -42,7 +42,7 @@ struct sigslot
     using callback_queue_type = ActiveQueue;
     using mutex_type = BasicLockable;
 
-    class basic_has_slots;
+    class basic_slot_holder;
 
     // see [std::make_unique](http://en.cppreference.com/w/cpp/memory/unique_ptr/make_unique)
     // `Possible Implementation` section.
@@ -53,9 +53,9 @@ struct sigslot
     }
 
     template <typename SignalType, typename ...Args>
-    inline void emit_signal (SignalType & sig)
+    static inline void emit_signal (SignalType & sig, Args &&... args)
     {
-        sig.emit_signal();
+        sig.emit_signal(std::forward<Args>(args)...);
     }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -66,26 +66,21 @@ struct sigslot
     {
     public:
         virtual ~basic_connection () {}
-        virtual basic_has_slots * getdest () const = 0;
+        virtual basic_slot_holder * get_slot_holder () const = 0;
         virtual void emit_signal (Args &&...) = 0;
-//         virtual basic_connection<Args...> * clone () = 0;
-//         virtual basic_connection<Args...> * duplicate (basic_has_slots * pnewdest) = 0;
     };
 
     class basic_signal : public mutex_type
     {
     public:
         virtual ~basic_signal () {}
-        virtual void slot_disconnect (basic_has_slots * pslot) = 0;
-
-        // Used inside has_slots copy constructor
-//         virtual void slot_duplicate (const basic_has_slots * poldslot, basic_has_slots * pnewslot) = 0;
+        virtual void slot_disconnect (basic_slot_holder * pslot) = 0;
     };
 
 ////////////////////////////////////////////////////////////////////////////////
-// basic_has_slots
+// basic_slot_holder
 ////////////////////////////////////////////////////////////////////////////////
-    class basic_has_slots : public mutex_type
+    class basic_slot_holder : public mutex_type
     {
     protected:
         using sender_set = std::set<basic_signal *>;
@@ -93,10 +88,9 @@ struct sigslot
 
         sender_set _senders;
         std::unique_ptr<callback_queue_type> _queue_ptr;
-//         std::unique_ptr<callback_queue_type> _priority_queue_ptr;
 
     public:
-        basic_has_slots ()
+        basic_slot_holder ()
         {}
 
         virtual bool use_queued_slots () const = 0;
@@ -106,7 +100,7 @@ struct sigslot
             return false;
         }
 
-        virtual basic_has_slots * master () const
+        virtual basic_slot_holder * master () const
         {
             assert(this->is_slave());
             return 0;
@@ -124,7 +118,7 @@ struct sigslot
             _senders.erase(sender);
         }
 
-        virtual ~basic_has_slots ()
+        virtual ~basic_slot_holder ()
         {
             disconnect_all();
         }
@@ -157,52 +151,49 @@ struct sigslot
         {
             return *_queue_ptr;
         }
-
-//         callback_queue_type & priority_callback_queue ()
-//         {
-//             return *_priority_queue_ptr;
-//         }
-//
-//         callback_queue_type const & priority_callback_queue () const
-//         {
-//             return *_priority_queue_ptr;
-//         }
     };
 
 ////////////////////////////////////////////////////////////////////////////////
-// has_slots
+// slot_holder
 ////////////////////////////////////////////////////////////////////////////////
-    class has_slots : public basic_has_slots
+    class slot_holder : public basic_slot_holder
     {
     public:
-        has_slots () : basic_has_slots () {}
-        virtual bool use_queued_slots () const override { return false; }
-    };
+        slot_holder () : basic_slot_holder ()
+        {}
 
-    class has_queued_slots : public basic_has_slots
-    {
-    public:
-        has_queued_slots () : basic_has_slots ()
+        virtual bool use_queued_slots () const override
         {
-//             this->_priority_queue_ptr = make_unique<callback_queue_type>();
+            return false;
+        }
+    };
+
+    class queued_slot_holder : public basic_slot_holder
+    {
+    public:
+        queued_slot_holder () : basic_slot_holder ()
+        {
             this->_queue_ptr = make_unique<callback_queue_type>();
         }
 
-        virtual bool use_queued_slots () const override { return true; }
+        virtual bool use_queued_slots () const override
+        {
+            return true;
+        }
     };
 
 ////////////////////////////////////////////////////////////////////////////////
-// has_slave_slots
+// slave_slot_holder
 ////////////////////////////////////////////////////////////////////////////////
-    class has_slave_slots : public basic_has_slots
+    class slave_slot_holder : public basic_slot_holder
     {
-        basic_has_slots * _master;
+        basic_slot_holder * _master;
 
     public:
-        has_slave_slots (basic_has_slots * master) : _master(master) {}
+        slave_slot_holder (basic_slot_holder * master) : _master(master) {}
         virtual bool use_queued_slots () const override { return false; }
         virtual bool is_slave () const override { return true; }
-        virtual basic_has_slots * master () const { return _master; }
+        virtual basic_slot_holder * master () const { return _master; }
     };
 
 
@@ -223,22 +214,6 @@ struct sigslot
             disconnect_all();
         }
 
-//         void slot_duplicate (basic_has_slots const * oldtarget
-//                 , basic_has_slots * newtarget)
-//         {
-//             std::lock_guard<mutex_type> lock(*this);
-//             auto it = _connected_slots.begin();
-//             auto last = _connected_slots.end();
-//
-//             while (it != last) {
-//                 if ((*it)->getdest() == oldtarget) {
-//                     _connected_slots.push_back((*it)->duplicate(newtarget));
-//                 }
-//
-//                 ++it;
-//             }
-//         }
-
         void disconnect_all ()
         {
             std::lock_guard<mutex_type> lock(*this);
@@ -246,7 +221,7 @@ struct sigslot
             auto last = _connected_slots.end();
 
             while (it != last) {
-                (*it)->getdest()->signal_disconnect(this);
+                (*it)->get_slot_holder()->signal_disconnect(this);
                 delete *it;
 
                 ++it;
@@ -255,14 +230,14 @@ struct sigslot
             _connected_slots.erase(_connected_slots.begin(), _connected_slots.end());
         }
 
-        void disconnect (basic_has_slots * pclass)
+        void disconnect (basic_slot_holder * pclass)
         {
             std::lock_guard<mutex_type> lock(*this);
             auto it = _connected_slots.begin();
             auto last = _connected_slots.end();
 
             while (it != last) {
-                if ((*it)->getdest() == pclass) {
+                if ((*it)->get_slot_holder() == pclass) {
                     delete *it;
                     _connected_slots.erase(it);
                     pclass->signal_disconnect(this);
@@ -273,7 +248,7 @@ struct sigslot
             }
         }
 
-        void slot_disconnect (basic_has_slots * pslot)
+        void slot_disconnect (basic_slot_holder * pslot)
         {
             std::lock_guard<mutex_type> lock(*this);
             auto it = _connected_slots.begin();
@@ -283,7 +258,7 @@ struct sigslot
                 auto next = it;
                 ++next;
 
-                if ((*it)->getdest() == pslot) {
+                if ((*it)->get_slot_holder() == pslot) {
                     _connected_slots.erase(it);
                 }
 
@@ -303,7 +278,7 @@ struct sigslot
 ////////////////////////////////////////////////////////////////////////////////
 //
 ////////////////////////////////////////////////////////////////////////////////
-    template <typename HasSlotsClass, typename ...Args>
+    template <typename SlotHolderClass, typename ...Args>
     class connection : public basic_connection<Args...>
     {
     public:
@@ -312,50 +287,46 @@ struct sigslot
             , _pmemfun(0)
         {}
 
-        connection (HasSlotsClass * pobject, void (HasSlotsClass::*pmemfun)(Args...))
+        connection (SlotHolderClass * pobject, void (SlotHolderClass::*pmemfun)(Args...))
             : _pobject(pobject)
             , _pmemfun(pmemfun)
         {}
 
-//         virtual basic_connection<Args...> * clone ()
-//         {
-//             return new connection<HasSlotsClass, Args...>(*this);
-//         }
-
-//         virtual basic_connection<Args...> * duplicate (basic_has_slots * pnewdest)
-//         {
-//             return new connection<HasSlotsClass, Args...>(static_cast<HasSlotsClass *>(pnewdest), _pmemfun);
-//         }
-
         virtual void emit_signal (Args &&... args)
         {
-            using method_type = void (HasSlotsClass::*)(Args...);
+            using method_type = void (SlotHolderClass::*)(Args...);
 
             if (_pobject->use_queued_slots()) {
-                HasSlotsClass * pobject = _pobject;
+                SlotHolderClass * pobject = _pobject;
                 method_type pmemfun = _pmemfun;
 
-//                 _pobject->callback_queue().template push<method_type, HasSlotsClass
-//                         , Args...>(std::move(pmemfun), std::move(pobject), std::forward<Args>(args)...);
+                //_pobject->callback_queue().template push<method_type, SlotHolderClass
+                //        , Args...>(std::move(pmemfun), std::move(pobject), std::forward<Args>(args)...);
                 _pobject->callback_queue().push(std::move(pmemfun)
                         , std::move(pobject)
                         , std::forward<Args>(args)...);
             } else if (_pobject->is_slave()) {
-//                 _pobject->master()->callback_queue().template push<HasSlotsClass
-//                         , Args...>(_pmemfun, _pobject, std::forward<Args>(args)...);
+                SlotHolderClass * pobject = _pobject;
+                method_type pmemfun = _pmemfun;
+
+                // _pobject->master()->callback_queue().template push<SlotHolderClass
+                //           , Args...>(_pmemfun, _pobject, std::forward<Args>(args)...);
+                _pobject->master()->callback_queue().push(std::move(pmemfun)
+                        , std::move(pobject)
+                        , std::forward<Args>(args)...);
             } else {
                 (_pobject->*_pmemfun)(std::forward<Args>(args)...);
             }
         }
 
-        virtual basic_has_slots * getdest () const
+        virtual basic_slot_holder * get_slot_holder () const
         {
             return _pobject;
         }
 
     private:
-        HasSlotsClass * _pobject;
-        void (HasSlotsClass::* _pmemfun)(Args...);
+        SlotHolderClass * _pobject;
+        void (SlotHolderClass::* _pmemfun)(Args...);
     };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -369,12 +340,12 @@ struct sigslot
     public:
         signal () {}
 
-        template <typename HasSlotsClass>
-        void connect (HasSlotsClass * pclass, void (HasSlotsClass::*pmemfun)(Args...))
+        template <typename SlotHolderClass>
+        void connect (SlotHolderClass * pclass, void (SlotHolderClass::*pmemfun)(Args...))
         {
             std::lock_guard<mutex_type> lock(*this);
-            connection<HasSlotsClass, Args...> * conn =
-                    new connection<HasSlotsClass, Args...>(pclass, pmemfun);
+            connection<SlotHolderClass, Args...> * conn =
+                    new connection<SlotHolderClass, Args...>(pclass, pmemfun);
             this->_connected_slots.push_back(conn);
             pclass->signal_connect(this);
         }
@@ -385,7 +356,7 @@ struct sigslot
             auto it = this->_connected_slots.cbegin();
             auto last = this->_connected_slots.cend();
 
-            while(it != last) {
+            while (it != last) {
                 auto next = it;
                 ++next;
 

@@ -23,3 +23,12 @@ add_test(NAME active_queue COMMAND active_queue)
 add_executable(modulus modulus.cpp)
 target_link_libraries(modulus ${CMAKE_THREAD_LIBS_INIT})
 add_test(NAME modulus COMMAND modulus)
+
+add_executable(dynamic_library dynamic_library.cpp)
+if (UNIX)
+    target_link_libraries(dynamic_library dl)
+endif()
+add_test(NAME dynamic_library COMMAND dynamic_library)
+
+# Helper library for test `dynamic_library`
+add_library(shared_object SHARED shared_object.c)
