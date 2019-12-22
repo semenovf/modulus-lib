@@ -15,12 +15,15 @@
 // #include <pfs/type_traits.hpp>
 // #include <pfs/atomic.hpp>
 #include <pfs/sigslot.hpp>
+#include <atomic>
 #include <deque>
 #include <list>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 // #include <pfs/stringlist.hpp>
 
 // #include <pfs/active_map.hpp>
@@ -29,14 +32,11 @@
 // #include <pfs/safeformat.hpp>
 // #include <pfs/datetime.hpp>
 // #include <pfs/chrono.hpp>
-// #include <pfs/thread.hpp>
+
 // #include <pfs/io/file.hpp>
 // #include <pfs/io/iterator.hpp>
 
 namespace pfs {
-
-// #define PFS_MODULE_CTOR_NAME "__module_ctor__"
-// #define PFS_MODULE_DTOR_NAME "__module_dtor__"
 
 struct basic_dispatcher
 {
@@ -65,20 +65,6 @@ struct basic_dispatcher
 
 // #endif // PFS_OS_POSIX
 };
-
-// #define PFS_MODULUS_TEMPLETE_SIGNATURE typename StringType                     \
-//     , template <typename, typename> class AssociativeContainer                 \
-//     , template <typename> class SequenceContainer                              \
-//     , template <typename> class QueueContainer                           \
-//     , typename BasicLockable                                                   \
-//     , int GcThreshold
-//
-// #define PFS_MODULUS_TEMPLETE_ARGS StringType                                   \
-//     , AssociativeContainer                                                     \
-//     , SequenceContainer                                                        \
-//     , QueueContainer                                                     \
-//     , BasicLockable                                                            \
-//     , GcThreshold
 
 template <typename KeyType, typename ValueType>
 using default_associative_container = std::map<KeyType, ValueType>;
@@ -109,6 +95,16 @@ struct modulus
     class async_module;
     class dispatcher;
 
+    static char const * module_ctor_name ()
+    {
+        return "__module_ctor__";
+    }
+
+        static char const * module_dtor_name ()
+    {
+        return "__module_dtor__";
+    }
+
     using callback_queue_type = active_queue<QueueContainer
         , BasicLockable
         , GcThreshold>;
@@ -123,14 +119,29 @@ struct modulus
     using string_type = StringType;
 //     typedef log<sigslot_ns, SequenceContainer> log_ns;
 //     typedef typename log_ns::logger logger_type;
-    using emitter_type  = typename sigslot_ns::template signal<> ;
+    using emitter_type  = typename sigslot_ns::template signal<>;
 
-    typedef void (basic_module::* detector_handler)(void *);
+    using detector_handler = void (basic_module::*)(void *);
     typedef struct { int id; void * emitter; }            emitter_mapper_pair;
     typedef struct { int id; detector_handler detector; } detector_mapper_pair;
 
-    typedef basic_module * (* module_ctor_t)(dispatcher * pdisp, char const * name, void *);
-    typedef void  (* module_dtor_t)(basic_module *);
+    using module_ctor_t = basic_module * (*)(dispatcher * pdisp, char const * name, void *);
+    using module_dtor_t = void  (*)(basic_module *);
+
+    // see [std::make_unique](http://en.cppreference.com/w/cpp/memory/unique_ptr/make_unique)
+    // `Possible Implementation` section.
+    template<typename T, typename ...Args>
+    static inline std::unique_ptr<T> make_unique (Args &&... args)
+    {
+        return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+    }
+
+    // see [Alternatives of static_pointer_cast for unique_ptr](https://stackoverflow.com/questions/36120424/alternatives-of-static-pointer-cast-for-unique-ptr/36120483)
+    template <typename TargetType, typename SourceType>
+    static inline std::unique_ptr<TargetType> static_unique_pointer_cast (std::unique_ptr<SourceType> && src)
+    {
+        return std::unique_ptr<TargetType>{static_cast<TargetType *>(src.release())};
+    }
 
     struct detector_pair
     {
@@ -163,157 +174,167 @@ struct modulus
 
     struct api_item_type;
 
-//     typedef AssociativeContainer<int, api_item_type *>     api_map_type;
-//     typedef AssociativeContainer<string_type, module_spec> module_spec_map_type;
-//     typedef int (basic_module::*thread_function)();
-//     typedef SequenceContainer<pfs::pair<basic_module *, thread_function> > runnable_sequence_type;
-//     typedef SequenceContainer<shared_ptr<pfs::thread> >                    thread_sequence_type;
-//
-//     class basic_module : public sigslot_ns::basic_has_slots
-//     {
-//         friend class dispatcher;
-//
-//     public:
-//         typedef StringType string_type;
-//         typedef modulus::emitter_mapper_pair  emitter_mapper_pair;
-//         typedef modulus::detector_mapper_pair detector_mapper_pair;
-//         typedef modulus::detector_handler     detector_handler;
-//         typedef modulus::thread_function      thread_function;
-//
-//     public: // signals
-//         typename sigslot_ns::template signal2<string_type const &, bool &> emit_module_registered;
-//
-//     public:
+    using api_map_type = AssociativeContainer<int, api_item_type *>;
+    using module_spec_map_type = AssociativeContainer<string_type, module_spec>;
+    using thread_function = int (basic_module::*)();
+    using runnable_sequence_type = SequenceContainer<std::pair<basic_module *, thread_function>>;
+    using thread_sequence_type = SequenceContainer<std::shared_ptr<std::thread>>;
+
+    class basic_module : public sigslot_ns::basic_slot_holder
+    {
+        friend class dispatcher;
+
+    public:
+        using string_type = StringType;
+        using emitter_mapper_pair = modulus::emitter_mapper_pair;
+        using detector_mapper_pair = modulus::detector_mapper_pair;
+        using detector_handler = modulus::detector_handler;
+        using thread_function = modulus::thread_function;
+
+    public: // signals
+        typename sigslot_ns::template signal<string_type const &, bool &> emit_module_registered;
+
+    protected:
+        string_type  _name;
+        dispatcher * _pdispatcher = nullptr;
+        bool         _started = false;
+
+    public:
 //         // TODO OBSOLETE, use quit()
 //         void emit_quit ()
 //         {
 //             _pdispatcher->quit();
 //         }
-//
-//         void quit ()
-//         {
-//             _pdispatcher->quit();
-//         }
-//
-//         void print_info (string_type const & s)
-//         {
-//             _pdispatcher->print_info(this, s);
-//         }
-//
-//         void print_debug (string_type const & s)
-//         {
-//             _pdispatcher->print_debug(this, s);
-//         }
-//
-//         void print_warn (string_type const & s)
-//         {
-//             _pdispatcher->print_warn(this, s);
-//         }
-//
-//         void print_error (string_type const & s)
-//         {
-//             _pdispatcher->print_error(this, s);
-//         }
-//
-//     protected:
-//         string_type  _name;
-//         dispatcher * _pdispatcher;
-//         bool         _started;
-//
-//     protected:
-//         basic_module (dispatcher * pdisp)
-//             : _pdispatcher(pdisp)
-//             , _started(false)
-//         {}
-//
-//         void set_name (string_type const & name)
-//         {
-//             _name = name;
-//         }
-//
-//     public:
-//         virtual ~basic_module () {}
-//
-//         string_type const & name() const
-//         {
-//             return _name;
-//         }
-//
-//         bool is_registered () const
-//         {
-//             return _pdispatcher != 0 ? true : false;
-//         }
-//
-//         bool is_started () const
-//         {
-//             return _started;
-//         }
-//
-//         dispatcher * get_dispatcher ()
-//         {
-//             return _pdispatcher;
-//         }
-//
-//         dispatcher const * get_dispatcher () const
-//         {
-//             return _pdispatcher;
-//         }
-//
-//         void register_thread_function (thread_function tfunc)
-//         {
-//             _pdispatcher->_runnable_modules.push_back(pfs::make_pair(this, tfunc));
-//         }
-//
-//         virtual emitter_mapper_pair const * get_emitters (int & count)
-//         {
-//             count = 0;
-//             return 0;
-//         }
-//
-//         virtual detector_mapper_pair const * get_detectors (int & count)
-//         {
-//             count = 0;
-//             return 0;
-//         }
-//
-//         bool is_quit () const
-//         {
-//             return _pdispatcher->is_quit();
-//         }
-//
-//         /**
-//          * @brief Module's on_loaded() method called after loaded and before registration.
-//          * @return
-//          */
-//         virtual bool on_loaded ()
-//         {
-//             return true;
-//         }
-//
-//         /**
-//          * @brief Module's on_start() method called after loaded and connection completed.
-//          */
-//         virtual bool on_start ()
-//         {
-//             return true;
-//         }
-//
-//         virtual bool on_finish ()
-//         {
-//             return true;
-//         }
-//     };// basic_module
-//
-//     //
-//     // Body must be identical to sigslot's has_slots
-//     // TODO Reimeplement to avoid code duplication
-//     //
-//     class module : public basic_module
-//     {
-//     public:
-//         module (dispatcher * pdisp) : basic_module(pdisp) {}
-//         virtual bool use_async_slots () const override { return false; }
-//
+
+        void quit ()
+        {
+            _pdispatcher->quit();
+        }
+
+        // TODO Rename to log_info
+        void print_info (string_type const & s)
+        {
+            _pdispatcher->print_info(this, s);
+        }
+
+        // TODO Rename to log_debug
+        void print_debug (string_type const & s)
+        {
+            _pdispatcher->print_debug(this, s);
+        }
+
+        // TODO Rename to log_warn
+        void print_warn (string_type const & s)
+        {
+            _pdispatcher->print_warn(this, s);
+        }
+
+        // TODO Rename to log_error
+        void print_error (string_type const & s)
+        {
+            _pdispatcher->print_error(this, s);
+        }
+
+    protected:
+        basic_module () noexcept : sigslot_ns::basic_slot_holder()
+        {}
+
+        void set_dispatcher (dispatcher * pdisp) noexcept
+        {
+            _pdispatcher = pdisp;
+        }
+
+        void set_name (string_type const & name) noexcept
+        {
+            _name = name;
+        }
+
+    public:
+        virtual ~basic_module () {}
+
+        string_type const & name() const noexcept
+        {
+            return _name;
+        }
+
+        bool is_registered () const noexcept
+        {
+            return _pdispatcher != 0 ? true : false;
+        }
+
+        bool is_started () const noexcept
+        {
+            return _started;
+        }
+
+        dispatcher * get_dispatcher () noexcept
+        {
+            return _pdispatcher;
+        }
+
+        dispatcher const * get_dispatcher () const noexcept
+        {
+            return _pdispatcher;
+        }
+
+        virtual emitter_mapper_pair const * get_emitters (int & count)
+        {
+            count = 0;
+            return nullptr;
+        }
+
+        virtual detector_mapper_pair const * get_detectors (int & count)
+        {
+            count = 0;
+            return nullptr;
+        }
+
+        bool is_quit () const
+        {
+            return _pdispatcher->is_quit();
+        }
+
+        /**
+         * @brief Module's on_loaded() method called after loaded and before registration.
+         * @return
+         */
+        virtual bool on_loaded ()
+        {
+            return true;
+        }
+
+        /**
+         * @brief Module's on_start() method called after loaded and connection completed.
+         */
+        virtual bool on_start ()
+        {
+            return true;
+        }
+
+        virtual bool on_finish ()
+        {
+            return true;
+        }
+    };// basic_module
+
+    //
+    // Body must be identical to sigslot's has_slots
+    // TODO Reimeplement to avoid code duplication
+    //
+    class module : public basic_module
+    {
+        friend class dispatcher;
+
+    protected:
+        module () noexcept : basic_module()
+        {}
+
+    public:
+        virtual bool use_queued_slots () const override
+        {
+            return false;
+        }
+
 //         void start_timer (timer_type_enum timer_type, double seconds, void (* f) ())
 //         {
 //             this->get_dispatcher()->start_timer(timer_type, seconds, f);
@@ -324,53 +345,53 @@ struct modulus
 //         {
 //             this->get_dispatcher()->start_timer(timer_type, seconds, f, a1);
 //         }
-//     };
-//
-//     //
-//     // Body must be identical to sigslot's has_async_slots
-//     // TODO Reimeplement to avoid code duplication
-//     //
-//     class async_module : public basic_module
-//     {
-//     public:
-//         async_module (dispatcher * pdisp) : basic_module(pdisp)
-//         {
-//             this->_priority_queue_ptr = make_unique<callback_queue_type>();
-//             this->_queue_ptr = make_unique<callback_queue_type>();
-//         }
-//
-//         virtual bool use_async_slots () const override { return true; }
-//
-//         /**
-//          * @see process_events.
-//          */
-//         void call_all ()
-//         {
-//             this->priority_callback_queue().call_all();
-//             this->callback_queue().call_all();
-//         }
-//
-//         /**
-//          * @brief process_events() is a synonym for call_all().
-//          * @see call_all.
-//          */
-//         void process_events ()
-//         {
-//             this->call_all();
-//         }
-//
-//         void process_events (int max_count)
-//         {
-//             this->priority_callback_queue().call_all();
-//             this->callback_queue().call(max_count);
-//         }
-//
-//         bool has_pending_events () const
-//         {
-//             return !(this->priority_callback_queue().empty()
-//                     && this->callback_queue().empty());
-//         }
-//
+    };
+
+    //
+    // Body must be identical to sigslot's has_async_slots
+    // TODO Reimeplement to avoid code duplication
+    //
+    class async_module : public basic_module
+    {
+    public:
+        async_module () : basic_module()
+        {
+            this->_queue_ptr = make_unique<callback_queue_type>();
+        }
+
+        virtual bool use_queued_slots () const override
+        {
+            return true;
+        }
+
+        /**
+         * @see process_events.
+         */
+        void call_all ()
+        {
+            this->callback_queue().call_all();
+        }
+
+        /**
+         * @brief process_events() is a synonym for call_all().
+         * @see call_all.
+         */
+        void process_events ()
+        {
+            this->call_all();
+        }
+
+        void process_events (int max_count)
+        {
+            this->callback_queue().call(max_count);
+        }
+
+        bool has_pending_events () const
+        {
+            return !(this->priority_callback_queue().empty()
+                    && this->callback_queue().empty());
+        }
+
 //         void start_timer (timer_type_enum timer_type, double seconds, void (* f) ())
 //         {
 //             this->get_dispatcher()->start_timer(timer_type, seconds, *this, f);
@@ -381,19 +402,36 @@ struct modulus
 //         {
 //             this->get_dispatcher()->template start_timer<Arg1>(timer_type, seconds, *this, f, a1);
 //         }
-//     };
-//
-//     class slave_module : public basic_module
-//     {
-//         async_module * _master;
-//
-//     public:
-//         slave_module (dispatcher * pdisp) : basic_module(pdisp), _master(0) {}
-//         virtual bool use_async_slots () const override { return false; }
-//         virtual bool is_slave () const override { return true; }
-//         virtual typename sigslot_ns::basic_has_slots * master () const { return _master; }
-//         void set_master (async_module * master) { _master = master; }
-//
+    };
+
+    class slave_module : public basic_module
+    {
+        async_module * _master = nullptr;
+
+    public:
+        slave_module () : basic_module()
+        {}
+
+        virtual bool use_queued_slots () const override
+        {
+            return false;
+        }
+
+        virtual bool is_slave () const override
+        {
+            return true;
+        }
+
+        virtual typename sigslot_ns::basic_slot_holder * master () const
+        {
+            return _master;
+        }
+
+        void set_master (async_module * master)
+        {
+            _master = master;
+        }
+
 //         void start_timer (timer_type_enum timer_type, double seconds, void (* f) ())
 //         {
 //             this->get_dispatcher()->start_timer(timer_type, seconds, *_master, f);
@@ -404,194 +442,380 @@ struct modulus
 //         {
 //             this->get_dispatcher()->start_timer(timer_type, seconds, *_master, f, a1);
 //         }
-//     };
-//
-//     struct basic_sigslot_mapper
-//     {
-//         virtual void connect_all () = 0;
-//         virtual void disconnect_all () = 0;
-//         virtual void append_emitter (emitter_type *e) = 0;
-//         virtual void append_detector (basic_module * m, detector_handler d) = 0;
-//     };
-//
-//     struct api_item_type
-//     {
-//         int                                   id;
-//         pfs::shared_ptr<basic_sigslot_mapper> mapper;
-//         string_type                           desc;
-//     };
-//
-//     template <typename EmitterType, typename DetectorType>
-//     struct sigslot_mapper : basic_sigslot_mapper
-//     {
-//         typedef SequenceContainer<EmitterType *> emitter_sequence;
-//         typedef SequenceContainer<detector_pair> detector_sequence;
-//
-//         emitter_sequence  emitters;
-//         detector_sequence detectors;
-//
-//         virtual void connect_all ()
-//         {
-//             if (emitters.size() == 0 || detectors.size() == 0)
-//                 return;
-//
-//             typename emitter_sequence::const_iterator itEnd = emitters.cend();
-//             typename detector_sequence::const_iterator itdEnd = detectors.cend();
-//
-//             for (typename emitter_sequence::const_iterator it = emitters.cbegin(); it != itEnd; it++) {
-//                 for (typename detector_sequence::const_iterator itd = detectors.cbegin(); itd != itdEnd; itd++) {
-//                     EmitterType * em = *it;
-//                     em->connect(itd->mod, reinterpret_cast<DetectorType> (itd->detector));
+    };
+
+    struct basic_sigslot_mapper
+    {
+        virtual void connect_all () = 0;
+        virtual void disconnect_all () = 0;
+        virtual void append_emitter (emitter_type * em) = 0;
+        virtual void append_detector (basic_module * m, detector_handler d) = 0;
+    };
+
+    struct api_item_type
+    {
+        int id;
+        std::unique_ptr<basic_sigslot_mapper> mapper;
+        string_type desc;
+    };
+
+    template <typename EmitterType, typename DetectorType>
+    struct sigslot_mapper : basic_sigslot_mapper
+    {
+        using emitter_sequence = SequenceContainer<EmitterType *>;
+        using detector_sequence = SequenceContainer<detector_pair>;
+
+        emitter_sequence  emitters;
+        detector_sequence detectors;
+
+        virtual void connect_all ()
+        {
+            if (emitters.size() == 0 || detectors.size() == 0)
+                return;
+
+            auto last_emitter_it = emitters.cend();
+            auto last_detector_it = detectors.cend();
+
+            for (auto ite = emitters.cbegin(); ite != last_emitter_it; ++ite) {
+                for (auto itd = detectors.cbegin(); itd != last_detector_it; ++itd) {
+                    EmitterType * em = *ite;
+                    em->connect(itd->mod, reinterpret_cast<DetectorType> (itd->detector));
+                }
+            }
+        }
+
+        virtual void disconnect_all ()
+        {
+            auto last = emitters.cend();
+
+            for (auto it = emitters.cbegin(); it != last; it++) {
+                EmitterType * em = *it;
+                em->disconnect_all();
+            }
+        }
+
+        virtual void append_emitter (emitter_type * e)
+        {
+            emitters.push_back(reinterpret_cast<EmitterType*>(e));
+        }
+
+        virtual void append_detector (basic_module * m, detector_handler d)
+        {
+            detectors.push_back(detector_pair(m, d));
+        }
+    };
+
+    template <typename ...Args>
+    static std::unique_ptr<basic_sigslot_mapper> make_mapper ()
+    {
+        //typedef sigslot_mapper<typename sigslot_ns::template signal1<A1>, void (basic_module::*)(A1)> concrete_mapper_type;
+        using concrete_mapper_type = sigslot_mapper<typename sigslot_ns::template signal<Args...>, void (basic_module::*)(Args...)>;
+        return static_unique_pointer_cast<basic_sigslot_mapper>(make_unique<concrete_mapper_type>());
+    }
+
+    class dispatcher : basic_dispatcher, public sigslot_ns::queued_slot_holder
+    {
+        friend class basic_module;
+        friend class module;
+        friend class async_module;
+
+//         typedef safeformat fmt;
+
+    public:
+        using string_type = modulus::string_type;
+//         using logger_type = modulus::logger_type;
+
+        struct exit_status
+        {
+            enum {
+                  success = 0
+                , failure = -1
+            };
+        };
+
+    private:
+        void connect_all ()
+        {
+            auto first = _api.begin();
+            auto last  = _api.end();
+
+            for (; first != last; ++first) {
+                first->second->mapper->connect_all();
+            }
+        }
+
+        void disconnect_all ()
+        {
+            auto first = _api.begin();
+            auto last  = _api.end();
+
+            for (; first != last; ++first) {
+                first->second->mapper->disconnect_all();
+            }
+        }
+
+        void unregister_all ()
+        {
+            _runnable_modules.clear();
+
+            auto first = _module_spec_map.begin();
+            auto last = _module_spec_map.end();
+
+            for (; first != last; ++first) {
+                module_spec & modspec = first->second;
+                std::shared_ptr<basic_module> & pmodule = modspec.pmodule;
+                pmodule->emit_module_registered.disconnect(this);
+
+                // TODO
+                //_logger.debug(fmt("%s: unregistered") % (pmodule->name()));
+
+                // Need to destroy pmodule before dynamic library will be destroyed automatically
+                pmodule.reset();
+            }
+
+            _module_spec_map.clear();
+        }
+
+        bool start ()
+        {
+            bool ok = true;
+
+            auto first = _module_spec_map.begin();
+            auto last  = _module_spec_map.end();
+
+            for (; first != last; ++first) {
+                module_spec modspec = first->second;
+                std::shared_ptr<basic_module> pmodule = modspec.pmodule;
+
+                if (pmodule->is_slave() && pmodule->master() == 0) {
+                    // TODO
+//                     _logger.error(fmt("module is slave but has no master: %s") % pmodule->name());
+                    ok = false;
+                }
+
+                if (ok) {
+                    if (! pmodule->on_start()) {
+                        // TODO
+//                         _logger.error(fmt("failed to start module: %s") % pmodule->name());
+                        ok = false;
+                        pmodule->_started = false;
+                    } else {
+                        pmodule->_started = true;
+                    }
+                }
+            }
+
+            //
+            // All modules started successfully.
+            // Redirect log ouput.
+            // TODO
+//             if (ok) {
+//                 info_printer  = & dispatcher::async_print_info;
+//                 debug_printer = & dispatcher::async_print_debug;
+//                 warn_printer  = & dispatcher::async_print_warn;
+//                 error_printer = & dispatcher::async_print_error;
+//             }
+
+            //
+            // Start timer
+            // TODO ?
+//             if (ok) {
+//                 if (timer_init() != 0) {
+//                     print_error(fmt("failed to initialize timer: %s")
+//                             % pfs::to_string(pfs::get_last_system_error()));
+//                     ok = false;
 //                 }
 //             }
-//         }
+
+            return ok;
+        }
+
+        void finalize ()
+        {
+            this->_queue_ptr->call_all();
+
+            // TODO ?
+//             _timer_callbacks.clear();
+//             timer_done();
+
+            // TODO
+//             info_printer  = & dispatcher::sync_print_info;
+//             debug_printer = & dispatcher::sync_print_debug;
+//             warn_printer  = & dispatcher::sync_print_warn;
+//             error_printer = & dispatcher::sync_print_error;
+
+            if (_module_spec_map.size() > 0) {
+                auto imodule      = _module_spec_map.begin();
+                auto imodule_last = _module_spec_map.end();
+
+                for (; imodule != imodule_last; ++imodule) {
+                    module_spec & modspec = imodule->second;
+
+                    if (modspec.pmodule->is_started()) {
+
+                        // Do not 'Call deferred callbacks in modules'
+                        // to avoid segmentation fault when signal handlers depends on varibales
+                        // which lifetime limited by run() method
+                        //
+        //                 // Call deferred callbacks in modules
+        //                 if (modspec.pmodule->use_queued_slots())
+        //                     static_cast<async_module *>(modspec.pmodule.get())->call_all();
+
+                        modspec.pmodule->on_finish();
+                    }
+                }
+
+                disconnect_all();
+                unregister_all();
+            }
+
+            this->_queue_ptr->call_all();
+        }
+
+        /**
+         * @brief Internal dispatcher loop.
+         */
+        void run ()
+        {
+            // TODO
+//             std::unique_lock<BasicLockable> locker(_timer_mutex, DEFER_LOCK);
+
+            while (! _quitfl) {
+                // TODO
+//                 locker.lock();
 //
-//         virtual void disconnect_all ()
-//         {
-//             typename emitter_sequence::const_iterator itEnd = emitters.cend();
+//                 int ntimers = timer_count();
 //
-//             for (typename emitter_sequence::const_iterator it = emitters.cbegin(); it != itEnd; it++) {
-//                 EmitterType * em = *it;
-//                 em->disconnect_all();
-//             }
-//         }
+//                 if (ntimers > 0) {
+//                     for (int i = 0; i < ntimers; ++i) {
+//                         if (timer_passed(i)) {
+//                             if (timer_is_periodic(i)) {
+//                                 _timer_callbacks.call(i);
+//                             } else {
+//                                 _timer_callbacks.call_and_erase(i);
+//                             }
 //
-//         virtual void append_emitter (emitter_type * e)
-//         {
-//             emitters.push_back(reinterpret_cast<EmitterType*>(e));
-//         }
+//                             timer_reset(i);
+//                         }
+//                     }
+//                 }
 //
-//         virtual void append_detector (basic_module * m, detector_handler d)
-//         {
-//             detectors.push_back(detector_pair(m, d));
-//         }
-//     };
-//
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::signal0, void (basic_module::*)()> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal1<A1>, void (basic_module::*)(A1)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal2<A1,A2>, void (basic_module::*)(A1,A2)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal3<A1,A2,A3>, void (basic_module::*)(A1,A2,A3)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3, typename A4>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal4<A1,A2,A3,A4>, void (basic_module::*)(A1,A2,A3,A4)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3, typename A4, typename A5>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal5<A1,A2,A3,A4,A5>, void (basic_module::*)(A1,A2,A3,A4,A5)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3, typename A4, typename A5, typename A6>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal6<A1,A2,A3,A4,A5,A6>, void (basic_module::*)(A1,A2,A3,A4,A5,A6)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3, typename A4, typename A5, typename A6, typename A7>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal7<A1,A2,A3,A4,A5,A6,A7>, void (basic_module::*)(A1,A2,A3,A4,A5,A6,A7)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     template <typename A1, typename A2, typename A3, typename A4, typename A5, typename A6, typename A7, typename A8>
-//     static pfs::shared_ptr<basic_sigslot_mapper> make_mapper ()
-//     {
-//         typedef sigslot_mapper<typename sigslot_ns::template signal8<A1,A2,A3,A4,A5,A6,A7,A8>, void (basic_module::*)(A1,A2,A3,A4,A5,A6,A7,A8)> concrete_mapper_type;
-//         return pfs::static_pointer_cast<basic_sigslot_mapper>(pfs::make_shared<concrete_mapper_type>());
-//     }
-//
-//     class dispatcher : basic_dispatcher, public sigslot_ns::has_async_slots
-//     {
-//         friend class basic_module;
-//         friend class module;
-//         friend class async_module;
-//
-//         typedef safeformat fmt;
-//
-//     public:
-//         typedef modulus::string_type string_type;
-//         typedef modulus::logger_type logger_type;
-//
-//         struct exit_status
-//         {
-//             enum {
-//                   success = 0
-//                 , failure = -1
-//             };
-//         };
-//
-//     private:
-//     #if __cplusplus >= 201103L
-//         dispatcher (dispatcher const &) = delete;
-//         dispatcher & operator = (dispatcher const &) = delete;
-//     #else
-//         dispatcher (dispatcher const &);
-//         dispatcher & operator = (dispatcher const &);
-//     #endif
-//
-//     private:
-//         void connect_all ();
-//         void disconnect_all ();
-//         void unregister_all ();
-//         bool start ();
-//         void finalize ();
-//
-//         /**
-//          * @brief Internal dispatcher loop.
-//          */
-//         void run ();
-//
-//         int  exec_main ();
-//
-//     public:
-//         dispatcher (api_item_type * mapper, int n);
-//
-//         virtual ~dispatcher ()
-//         {
-//             finalize();
-//         }
-//
-//         virtual void quit () override
-//         {
-//             _quitfl.store(1);
-//         }
-//
-//         bool is_quit () const
-//         {
-//             return (_quitfl.load() != 0);
-//         }
-//
-//         int exec ();
-//
+//                 locker.unlock();
+
+                // FIXME Use condition_variable to wait until _callback_queue will not be empty.
+                if (this->_queue_ptr->empty()) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(100));
+                    continue;
+                }
+
+                // TODO Make configurable constant (5)
+                this->_queue_ptr->call(5);
+            }
+
+            this->_queue_ptr->call_all();
+        }
+
+        int exec_main ()
+        {
+            int r = exit_status::success;
+
+            thread_sequence_type thread_pool;
+
+            auto irunnable      = _runnable_modules.begin();
+            auto irunnable_last = _runnable_modules.end();
+
+            thread_function master_thread_function = 0;
+
+            for (; irunnable != irunnable_last; ++irunnable) {
+                basic_module * m = irunnable->first;
+                thread_function tfunc = irunnable->second;
+
+                // Handle deferred calls after start stage and before thread method call (run()).
+                m->_queue_ptr->call_all();
+
+                // Run module if it is not a master
+                if (m != _master_module_ptr)
+                    thread_pool.push_back(std::make_shared<std::thread>(tfunc, m));
+                else
+                    master_thread_function = tfunc;
+            }
+
+            // Run module if it is a master
+            if (master_thread_function) {
+                // Run dispatcher loop in separate thread
+                std::thread dthread(& dispatcher::run, this);
+
+                // And call master function
+                r = (_master_module_ptr->*master_thread_function)();
+
+                dthread.join();
+            } else {
+                this->run();
+            }
+
+            auto ithread      = thread_pool.begin();
+            auto ithread_last = thread_pool.end();
+
+            for (; ithread != ithread_last; ++ithread) {
+                (*ithread)->join();
+            }
+
+            return r;
+        }
+
+    public:
+        dispatcher (dispatcher const &) = delete;
+        dispatcher & operator = (dispatcher const &) = delete;
+
+        dispatcher (api_item_type * mapper, int n)
+            : basic_dispatcher()
+//             , info_printer(& dispatcher::sync_print_info)
+//             , debug_printer(& dispatcher::sync_print_debug)
+//             , warn_printer(& dispatcher::sync_print_warn)
+//             , error_printer(& dispatcher::sync_print_error)
+            , _quitfl(0)
+            , _master_module_ptr(nullptr)
+        {
+//     // Initialize default logger
+//     _cout_appender_ptr = & _logger.template add_appender<typename log_ns::stdout_appender>();
+//     _cerr_appender_ptr = & _logger.template add_appender<typename log_ns::stderr_appender>();
+//     _cout_appender_ptr->set_pattern("%d{ABSOLUTE} [%p]: %m");
+//     _cerr_appender_ptr->set_pattern("%d{ABSOLUTE} [%p]: %m");
+//      connect_console_appenders();
+
+            register_api(mapper, n);
+        }
+
+        virtual ~dispatcher ()
+        {
+            finalize();
+        }
+
+        virtual void quit () override
+        {
+            _quitfl.store(1);
+        }
+
+        bool is_quit () const
+        {
+            return (_quitfl.load() != 0);
+        }
+
+        int exec ()
+        {
+            int r = exit_status::failure;
+
+            connect_all();
+
+            if (start()) {
+                r = exec_main();
+            }
+
+            finalize();
+
+            return r;
+        }
+
 //         void start_timer (timer_type_enum timer_type, double seconds, async_module & m, void (* f) ())
 //         {
 //             start_timer(timer_type, seconds, & m.priority_callback_queue(), f);
@@ -621,8 +845,13 @@ struct modulus
 //             _timer_callbacks.erase(id);
 //         }
 //
-//         void register_api (api_item_type * mapper, int n);
-//
+        void register_api (api_item_type * mapper, int n)
+        {
+            for (int i = 0; i < n; ++i) {
+                _api.insert(std::make_pair(mapper[i].id, & mapper[i]));
+            }
+        }
+
 //         void add_search_path (filesystem::path const & dir)
 //         {
 //             if (!dir.empty())
@@ -658,33 +887,119 @@ struct modulus
 //          */
 //         template <typename Json>
 //         bool register_modules (Json const & conf);
-//
-//         bool register_local_module (basic_module * pmodule, string_type const & name);
-//
+
+    private:
+        template <typename ModuleClass, typename ...Args>
+        void register_module_helper (module_spec * pmodspec
+                , string_type const & name
+                , Args &&... args)
+        {
+            auto pmodule = std::make_shared<ModuleClass>(std::forward<Args>(args)...);
+            pmodspec->pmodule = std::static_pointer_cast<basic_module>(pmodule);
+            pmodspec->pmodule->set_dispatcher(this);
+            pmodspec->pmodule->set_name(name);
+        }
+
+    public:
+        template <typename ModuleClass, typename ...Args>
+        bool register_regular_module (string_type const & name, Args &&... args)
+        {
+            module_spec modspec;
+            register_module_helper<ModuleClass>(& modspec, name, std::forward<Args>(args)...);
+            return register_module(modspec);
+        }
+
+        template <typename ModuleClass, typename ...Args>
+        bool register_async_module (string_type const & name
+                , int (ModuleClass::* thread_func) ()
+                , Args &&... args)
+        {
+            module_spec modspec;
+            register_module_helper<ModuleClass>(& modspec, name, std::forward<Args>(args)...);
+            this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
+                    , static_cast<typename async_module::thread_function>(thread_func)));
+            return register_module(modspec);
+        }
+
+        template <typename ModuleClass, typename ...Args>
+        bool register_slave_module (string_type const & name
+                , string_type const & async_module_name
+                , Args &&... args)
+        {
+            module_spec modspec;
+            register_module_helper<ModuleClass>(& modspec, name, std::forward<Args>(args)...);
+
+            basic_module * master = this->find_registered_module(async_module_name);
+
+            if (!master) {
+                // TODO
+                //_logger.error(fmt("%s: active module not found") % async_module_name);
+                return false;
+            }
+
+            if (!master->use_queued_slots()) {
+                // TODO
+                //_logger.error(fmt("%s: module must be asynchronous") % name);
+                return false;
+            }
+
+            std::static_pointer_cast<slave_module>(modspec.pmodule)->set_master(static_cast<async_module *>(master));
+
+            return register_module(modspec);
+        }
+
 //         bool register_module_for_path (filesystem::path const & path
 //                 , string_type const & name
 //                 , const char * class_name = 0
 //                 , void * mod_data = 0);
 //
-//         bool register_module_for_name (string_type const & name
-//                 , char const * class_name = 0
-//                 , void * mod_data = 0);
+        bool register_module_for_name (string_type const & name
+                , char const * class_name = 0
+                , void * mod_data = 0)
+        {
+            module_spec modspec = module_for_name(name, class_name, mod_data);
+
+            if (modspec.pmodule) {
+                modspec.pmodule->set_name(name);
+                return register_module(modspec);
+            }
+
+            return false;
+        }
 //
 //         bool set_dependences (string_type const & name, string_type const & depends_name);
 //
-//         // TODO Unsuitbale member name, rename it
-//         bool set_master_module (string_type const & name);
-//
-//         size_t count () const
-//         {
-//             return _module_spec_map.size();
-//         }
-//
-//         bool is_module_registered (string_type const & modname) const
-//         {
-//             return _module_spec_map.find(modname) != _module_spec_map.end();
-//         }
-//
+        // TODO Unsuitbale member name, rename it
+        bool set_master_module (string_type const & name)
+        {
+            basic_module * master = find_registered_module(name);
+
+            if (!master) {
+                // TODO
+                //_logger.error(fmt("%s: master module not found") % name);
+                return false;
+            }
+
+            if (!master->use_queued_slots()) {
+                // TODO
+                //_logger.error(fmt("%s: module must be asynchronous") % name);
+                return false;
+            }
+
+            _master_module_ptr = master;
+            return true;
+        }
+
+        size_t count () const
+        {
+            return _module_spec_map.size();
+        }
+
+        bool is_module_registered (string_type const & modname) const
+        {
+            return _module_spec_map.find(modname) != _module_spec_map.end();
+        }
+
 //         logger_type & get_logger () { return _logger; }
 //         logger_type const & get_logger () const { return _logger; }
 //
@@ -693,72 +1008,205 @@ struct modulus
 //             _log_directory = dir;
 //         }
 //
-//     public: // slots
-//         void module_registered ( string_type const & pname, bool & result )
-//         {
-//             result = is_module_registered ( pname );
-//         }
-//
-//         void print_info (basic_module const * m, string_type const & s)
-//         {
+    public: // slots
+        void module_registered (string_type const & pname, bool & result)
+        {
+            result = is_module_registered(pname);
+        }
+
+        void log_info (basic_module const * m, string_type const & s)
+        {
 //             (this->*info_printer)(m, s);
-//         }
-//
-//         void print_debug (basic_module const * m, string_type const & s)
-//         {
+        }
+
+        void log_debug (basic_module const * m, string_type const & s)
+        {
 //             (this->*debug_printer)(m, s);
-//         }
-//
-//         void print_warn (basic_module const * m, string_type const & s)
-//         {
+        }
+
+        void log_warn (basic_module const * m, string_type const & s)
+        {
 //             (this->*warn_printer)(m, s);
-//         }
-//
-//         void print_error (basic_module const * m, string_type const & s)
-//         {
+        }
+
+        void log_error (basic_module const * m, string_type const & s)
+        {
 //             (this->*error_printer)(m, s);
-//         }
-//
-//         void print_info (string_type const & s)
-//         {
-//             print_info(0, s);
-//         }
-//
-//         void print_debug (string_type const & s)
-//         {
-//             print_debug(0, s);
-//         }
-//
-//         void print_warn (string_type const & s)
-//         {
-//             print_warn(0, s);
-//         }
-//
-//         void print_error (string_type const & s)
-//         {
-//             print_error(0, s);
-//         }
-//
+        }
+
+        void log_info (string_type const & s)
+        {
+            log_info(0, s);
+        }
+
+        void log_debug (string_type const & s)
+        {
+            log_debug(0, s);
+        }
+
+        void log_warn (string_type const & s)
+        {
+            log_warn(0, s);
+        }
+
+        void log_error (string_type const & s)
+        {
+            log_error(0, s);
+        }
+
 //         void connect_console_appenders ();
 //         void disconnect_console_appenders ();
 //
 //         filesystem::pathlist module_paths () const;
 //
-//     protected:
-//         module_spec module_for_path ( filesystem::path const & path
-//                 , char const * class_name = 0
-//                 , void * mod_data = 0 );
-//
-//         module_spec module_for_name ( string_type const & name
-//                 , char const * class_name = 0
-//                 , void * mod_data = 0 )
-//         {
-//             filesystem::path modpath = build_so_filename(name);
-//             return module_for_path ( modpath, class_name, mod_data );
-//         }
-//
-//         bool register_module ( module_spec const & modspec );
-//
+    protected:
+        module_spec module_for_path (string_type const & path
+                , char const * class_name = 0
+                , void * mod_data = 0)
+        {
+            auto pdl = std::make_shared<dynamic_library>();
+            std::error_code ec;
+
+//             filesystem::path dlpath(path);
+
+//             if (path.is_relative()) {
+//                 dlpath = filesystem::path(".") / path;
+//             }
+
+            //if (!pdl->open(dlpath, _searchdirs, ec)) {
+            if (!pdl->open(path, ec)) {
+                // TODO
+//                 _logger.error(fmt("%s: %s")
+//                         % (to_string(dlpath))
+//                         % (to_string(ec)));
+                return module_spec();
+            }
+
+            dynamic_library::symbol_type ctor = pdl->resolve(module_ctor_name(), ec);
+
+            if (!ctor) {
+                // TODO
+//                 _logger.error(fmt("%s: failed to resolve `ctor' for module: %s")
+//                         % (to_string(dlpath))
+//                         % (to_string(ec)));
+
+                return module_spec();
+            }
+
+            dynamic_library::symbol_type dtor = pdl->resolve(module_dtor_name(), ec);
+
+            if (!dtor) {
+                // TODO
+//                 _logger.error(fmt("%s: failed to resolve `dtor' for module: %s")
+//                         % (to_string(dlpath))
+//                         % (to_string(ec)));
+
+                return module_spec();
+            }
+
+            module_ctor_t module_ctor = void_func_ptr_cast<module_ctor_t>(ctor);
+            module_dtor_t module_dtor = void_func_ptr_cast<module_dtor_t>(dtor);
+
+            //module * ptr = reinterpret_cast<module *>(module_ctor(class_name, mod_data));
+            basic_module * ptr = module_ctor(this, class_name, mod_data);
+
+            if (!ptr)
+                return module_spec();
+
+            module_spec result;
+            result.pdl = pdl;
+            result.pmodule = std::shared_ptr<basic_module>(ptr, module_deleter(module_dtor));
+
+            return result;
+        }
+
+        module_spec module_for_name (string_type const & name
+                , char const * class_name = 0
+                , void * mod_data = 0 )
+        {
+            auto modpath = dynamic_library::build_dl_filename(name);
+            return module_for_path(modpath, class_name, mod_data);
+        }
+
+        bool register_module (module_spec const & modspec)
+        {
+            int nemitters, ndetectors;
+
+            if (!modspec.pmodule)
+                return false;
+
+            auto pmodule = modspec.pmodule;
+
+            if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
+                // TODO
+//                 _logger.error(fmt("%s: module already registered") % (pmodule->name()));
+                return false;
+            }
+
+            if (!pmodule->on_loaded()) {
+                // TODO
+//                 _logger.error(fmt("%s: on_loaded stage failed") % pmodule->name());
+                return false;
+            }
+
+            emitter_mapper_pair const * emitters = pmodule->get_emitters(nemitters);
+            detector_mapper_pair const * detectors = pmodule->get_detectors(ndetectors);
+
+            auto it_end = _api.end();
+
+            if (emitters) {
+                for (int i = 0; i < nemitters; ++i) {
+                    int emitter_id(emitters[i].id);
+                    typename api_map_type::iterator it = _api.find(emitter_id);
+
+                    if (it != it_end) {
+                        it->second->mapper->append_emitter(reinterpret_cast<emitter_type *>(emitters[i].emitter));
+                    } else {
+                        // TODO
+//                         _logger.warn(fmt("%s: emitter '%s' not found while registering module, "
+//                                 "may be signal/slot mapping is not supported for this application")
+//                                 % (pmodule->name())
+//                                 % (to_string(emitters[i].id)));
+                    }
+                }
+            }
+
+            if (detectors) {
+                for (int i = 0; i < ndetectors; ++i) {
+                    int detector_id(detectors[i].id);
+                    typename api_map_type::iterator it = _api.find(detector_id);
+
+                    if (it != it_end) {
+                        it->second->mapper->append_detector(pmodule.get(), detectors[i].detector);
+                    } else {
+                        // TODO
+//                         _logger.warn(fmt("%s: detector '%s' not found while registering module, "
+//                                 "may be signal/slot mapping is not supported for this application")
+//                                 % (pmodule->name())
+//                                 % (to_string(detectors[i].id)));
+                    }
+                }
+            }
+
+            pmodule->emit_module_registered.connect(this, & dispatcher::module_registered);
+            _module_spec_map.insert(std::make_pair(pmodule->name(), modspec));
+
+            // Module must be run in a separate thread.
+            //
+        //    if (pmodule->run) {
+        //        _runnable_modules.push_back(pmodule);
+        //        print_debug(0, current_datetime(), fmt("%s: registered as threaded") % (pmodule->name()));
+        //    } else {
+
+                //TODO
+                //_logger.debug(fmt("%s: registered") % (pmodule->name()));
+
+
+        //    }
+
+            return true;
+        }
+
 //         void sync_print_info (basic_module const * m, string_type const & s)
 //         {
 //             _logger.info(m != 0 ? m->name() + ": " + s : s);
@@ -803,7 +1251,21 @@ struct modulus
 //                     & logger_type::error, & _logger, (m != 0 ? m->name() + ": " + s : s));
 //         }
 //
-//         basic_module * find_registered_module (string_type const & name);
+        basic_module * find_registered_module (string_type const & name)
+        {
+            auto first = _module_spec_map.begin();
+            auto last  = _module_spec_map.end();
+
+            for (; first != last; ++first) {
+                module_spec modspec = first->second;
+                auto pmodule = modspec.pmodule;
+
+                if (pmodule->name() == name)
+                    return pmodule.get();
+            }
+
+            return nullptr;
+        }
 //
 //         static void deferred_caller (callback_queue_type * q, void (* f) ())
 //         {
@@ -831,18 +1293,18 @@ struct modulus
 //             _timer_callbacks.template insert_function<callback_queue_type *, void (*) (Arg1), Arg1>(id, deferred_caller, q, f, a1);
 //         }
 //
-//     private:
+    private:
 //         void (dispatcher::*info_printer) (basic_module const * m, string_type const & s);
 //         void (dispatcher::*debug_printer) (basic_module const * m, string_type const & s);
 //         void (dispatcher::*warn_printer) (basic_module const * m, string_type const & s);
 //         void (dispatcher::*error_printer) (basic_module const * m, string_type const & s);
 //
-//         atomic_int             _quitfl; // quit flag
+        std::atomic_int  _quitfl; // quit flag
 //         filesystem::pathlist   _searchdirs;
-//         api_map_type           _api;
-//         module_spec_map_type   _module_spec_map;
-//         runnable_sequence_type _runnable_modules;  // modules run in a separate threads
-//         basic_module *         _master_module_ptr; // TODO Unsuitbale member name, rename it
+        api_map_type           _api;
+        module_spec_map_type   _module_spec_map;
+        runnable_sequence_type _runnable_modules;  // modules run in a separate threads
+        basic_module *         _master_module_ptr; // TODO Unsuitable member name, rename it
 //         filesystem::path       _log_directory;
 //         logger_type            _logger;
 //
@@ -852,32 +1314,9 @@ struct modulus
 //         // Console appenders
 //         typename log_ns::appender * _cout_appender_ptr;
 //         typename log_ns::appender * _cerr_appender_ptr;
-//     }; // class dispatcher
+    }; // class dispatcher
 }; // struct modulus
 
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::dispatcher (
-//         api_item_type * mapper
-//         , int n)
-//     : basic_dispatcher()
-//     , info_printer(& dispatcher::sync_print_info)
-//     , debug_printer(& dispatcher::sync_print_debug)
-//     , warn_printer(& dispatcher::sync_print_warn)
-//     , error_printer(& dispatcher::sync_print_error)
-//     , _master_module_ptr(0)
-//     , _quitfl(0)
-// {
-//     // Initialize default logger
-//     _cout_appender_ptr = & _logger.template add_appender<typename log_ns::stdout_appender>();
-//     _cerr_appender_ptr = & _logger.template add_appender<typename log_ns::stderr_appender>();
-//     _cout_appender_ptr->set_pattern("%d{ABSOLUTE} [%p]: %m");
-//     _cerr_appender_ptr->set_pattern("%d{ABSOLUTE} [%p]: %m");
-//
-//     connect_console_appenders();
-//
-//     register_api(mapper, n);
-// }
-//
 // template <PFS_MODULUS_TEMPLETE_SIGNATURE>
 // void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::connect_console_appenders ()
 // {
@@ -894,349 +1333,6 @@ struct modulus
 // {
 //     _logger.disconnect(*_cout_appender_ptr);
 //     _logger.disconnect(*_cerr_appender_ptr);
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::register_api (
-//           api_item_type * mapper
-//         , int n)
-// {
-//     for (int i = 0; i < n; ++i) {
-//         _api.insert(mapper[i].id, & mapper[i]);
-//     }
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::connect_all ()
-// {
-//     typename api_map_type::iterator first = _api.begin();
-//     typename api_map_type::iterator last  = _api.end();
-//
-//     for (; first != last; ++first) {
-//         first->second->mapper->connect_all();
-//     }
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::run ()
-// {
-//     pfs::unique_lock<BasicLockable> locker(_timer_mutex, DEFER_LOCK);
-//
-//     while (! _quitfl) {
-//         locker.lock();
-//
-//         int ntimers = timer_count();
-//
-//         if (ntimers > 0) {
-//             for (int i = 0; i < ntimers; ++i) {
-//                 if (timer_passed(i)) {
-//                     if (timer_is_periodic(i)) {
-//                         _timer_callbacks.call(i);
-//                     } else {
-//                         _timer_callbacks.call_and_erase(i);
-//                     }
-//
-//                     timer_reset(i);
-//                 }
-//             }
-//         }
-//
-//         locker.unlock();
-//
-//         // FIXME Use condition_variable to wait until _callback_queue will not be empty.
-//         if (this->_queue_ptr->empty()) {
-//             pfs::this_thread::sleep_for(pfs::chrono::microseconds(100));
-//             continue;
-//         }
-//
-//         this->_queue_ptr->call(5);
-//     }
-//
-//     this->_queue_ptr->call_all();
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::start ()
-// {
-//     bool ok = true;
-//
-//     typename module_spec_map_type::iterator first = _module_spec_map.begin();
-//     typename module_spec_map_type::iterator last  = _module_spec_map.end();
-//
-//     for (; first != last; ++first) {
-//         module_spec modspec = first->second;
-//         shared_ptr<basic_module> pmodule = modspec.pmodule;
-//
-//         if (pmodule->is_slave() && pmodule->master() == 0) {
-//             _logger.error(fmt("module is slave but has no master: %s") % pmodule->name());
-//             ok = false;
-//         }
-//
-//         if (ok) {
-//             if (! pmodule->on_start()) {
-//                 _logger.error(fmt("failed to start module: %s") % pmodule->name());
-//                 ok = false;
-//                 pmodule->_started = false;
-//             } else {
-//                 pmodule->_started = true;
-//             }
-//         }
-//     }
-//
-//     //
-//     // All modules started successfully.
-//     // Redirect log ouput.
-//     //
-//     if (ok) {
-//         info_printer  = & dispatcher::async_print_info;
-//         debug_printer = & dispatcher::async_print_debug;
-//         warn_printer  = & dispatcher::async_print_warn;
-//         error_printer = & dispatcher::async_print_error;
-//     }
-//
-//     //
-//     // Start timer
-//     //
-//     if (ok) {
-//         if (timer_init() != 0) {
-//             print_error(fmt("failed to initialize timer: %s")
-//                     % pfs::to_string(pfs::get_last_system_error()));
-//             ok = false;
-//         }
-//     }
-//
-//     return ok;
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::finalize ()
-// {
-//     this->_queue_ptr->call_all();
-//
-//     _timer_callbacks.clear();
-//     timer_done();
-//
-//     info_printer  = & dispatcher::sync_print_info;
-//     debug_printer = & dispatcher::sync_print_debug;
-//     warn_printer  = & dispatcher::sync_print_warn;
-//     error_printer = & dispatcher::sync_print_error;
-//
-//     if (_module_spec_map.size() > 0) {
-//         typename module_spec_map_type::iterator imodule      = _module_spec_map.begin();
-//         typename module_spec_map_type::iterator imodule_last = _module_spec_map.end();
-//
-//         for (; imodule != imodule_last; ++imodule) {
-//             module_spec & modspec = imodule->second;
-//
-//             if (modspec.pmodule->is_started()) {
-//
-//                 // Do not 'Call deferred callbacks in modules'
-//                 // to avoid segmentation fault when signal handlers depends on varibales
-//                 // which lifetime limited by run() method
-//                 //
-// //                 // Call deferred callbacks in modules
-// //                 if (modspec.pmodule->use_async_slots())
-// //                     static_cast<async_module *>(modspec.pmodule.get())->call_all();
-//
-//                 modspec.pmodule->on_finish();
-//             }
-//         }
-//
-//         disconnect_all();
-//         unregister_all();
-//     }
-//
-//     this->_queue_ptr->call_all();
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::disconnect_all ()
-// {
-//     typename api_map_type::iterator first = _api.begin();
-//     typename api_map_type::iterator last  = _api.end();
-//
-//     for (; first != last; ++first) {
-//         first->second->mapper->disconnect_all();
-//     }
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// void modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::unregister_all ()
-// {
-//     _runnable_modules.clear();
-//
-//     typename module_spec_map_type::iterator first = _module_spec_map.begin();
-//     typename module_spec_map_type::iterator last = _module_spec_map.end();
-//
-//     for (; first != last; ++first) {
-//         module_spec & modspec = first->second;
-//         shared_ptr<basic_module> & pmodule = modspec.pmodule;
-//         pmodule->emit_module_registered.disconnect(this);
-//         _logger.debug(fmt("%s: unregistered") % (pmodule->name()));
-//
-//         // Need to destroy pmodule before dynamic library will be destroyed automatically
-//         pmodule.reset();
-//     }
-//
-//     _module_spec_map.clear();
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::register_local_module (
-//           basic_module * pmodule
-//         , string_type const & name)
-// {
-//     module_spec modspec;
-//     modspec.pmodule = shared_ptr<basic_module>(pmodule);
-//     modspec.pmodule->set_name(name);
-//     return register_module(modspec);
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::register_module_for_name (
-//           string_type const & name
-//         , char const * class_name
-//         , void * mod_data)
-// {
-//     module_spec modspec = module_for_name(name, class_name, mod_data);
-//
-//     if (modspec.pmodule) {
-//         modspec.pmodule->set_name(name);
-//         return register_module(modspec);
-//     }
-//     return false;
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// typename modulus<PFS_MODULUS_TEMPLETE_ARGS>::module_spec
-// modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::module_for_path (
-//           filesystem::path const & path
-//         , char const * class_name
-//         , void * mod_data)
-// {
-//     shared_ptr<dynamic_library> pdl = make_shared<dynamic_library>();
-//     error_code ec;
-//
-//     filesystem::path dlpath(path);
-//
-//     if (path.is_relative()) {
-//         dlpath = filesystem::path(".") / path;
-//     }
-//
-//     if (!pdl->open(dlpath, _searchdirs, ec)) {
-//         _logger.error(fmt("%s: %s")
-//                 % (to_string(dlpath))
-//                 % (to_string(ec)));
-//         return module_spec();
-//     }
-//
-//     dynamic_library::symbol_type ctor = pdl->resolve(PFS_MODULE_CTOR_NAME, ec);
-//
-//     if (!ctor) {
-//         _logger.error(fmt("%s: failed to resolve `ctor' for module: %s")
-//                 % (to_string(dlpath))
-//                 % (to_string(ec)));
-//
-//         return module_spec();
-//     }
-//
-//     dynamic_library::symbol_type dtor = pdl->resolve(PFS_MODULE_DTOR_NAME, ec);
-//
-//     if (!dtor) {
-//         _logger.error(fmt("%s: failed to resolve `dtor' for module: %s")
-//                 % (to_string(dlpath))
-//                 % (to_string(ec)));
-//
-//         return module_spec();
-//     }
-//
-//     module_ctor_t module_ctor = pfs::void_func_ptr_cast<module_ctor_t>(ctor);
-//     module_dtor_t module_dtor = pfs::void_func_ptr_cast<module_dtor_t>(dtor);
-//
-//     //module * ptr = reinterpret_cast<module *>(module_ctor(class_name, mod_data));
-//     basic_module * ptr = module_ctor(this, class_name, mod_data);
-//
-//     if (!ptr)
-//         return module_spec();
-//
-//     module_spec result;
-//     result.pdl = pdl;
-//     result.pmodule = shared_ptr<basic_module>(ptr, module_deleter(module_dtor));
-//
-//     return result;
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::register_module (
-//         module_spec const & modspec)
-// {
-//     int nemitters, ndetectors;
-//
-//     if (!modspec.pmodule)
-//         return false;
-//
-//     shared_ptr<basic_module> pmodule = modspec.pmodule;
-//
-//     if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
-//         _logger.error(fmt("%s: module already registered") % (pmodule->name()));
-//         return false;
-//     }
-//
-//     if (!pmodule->on_loaded()) {
-//         _logger.error(fmt("%s: on_loaded stage failed") % pmodule->name());
-//         return false;
-//     }
-//
-//     emitter_mapper_pair const * emitters = pmodule->get_emitters(nemitters);
-//     detector_mapper_pair const * detectors = pmodule->get_detectors(ndetectors);
-//
-//     typename api_map_type::iterator it_end = _api.end();
-//
-//     if (emitters) {
-//         for (int i = 0; i < nemitters; ++i) {
-//             int emitter_id(emitters[i].id);
-//             typename api_map_type::iterator it = _api.find(emitter_id);
-//
-//             if (it != it_end) {
-//                 it->second->mapper->append_emitter(reinterpret_cast<emitter_type *>(emitters[i].emitter));
-//             } else {
-//                 _logger.warn(fmt("%s: emitter '%s' not found while registering module, "
-//                         "may be signal/slot mapping is not supported for this application")
-//                         % (pmodule->name())
-//                         % (to_string(emitters[i].id)));
-//             }
-//         }
-//     }
-//
-//     if (detectors) {
-//         for (int i = 0; i < ndetectors; ++i) {
-//             int detector_id(detectors[i].id);
-//             typename api_map_type::iterator it = _api.find(detector_id);
-//
-//             if (it != it_end) {
-//                 it->second->mapper->append_detector(pmodule.get(), detectors[i].detector);
-//             } else {
-//                 _logger.warn(fmt("%s: detector '%s' not found while registering module, "
-//                         "may be signal/slot mapping is not supported for this application")
-//                         % (pmodule->name())
-//                         % (to_string(detectors[i].id)));
-//             }
-//         }
-//     }
-//
-//     pmodule->emit_module_registered.connect(this, & dispatcher::module_registered);
-//     _module_spec_map.insert(pmodule->name(), modspec);
-//
-//     // Module must be run in a separate thread.
-//     //
-// //    if (pmodule->run) {
-// //        _runnable_modules.push_back(pmodule);
-// //        print_debug(0, current_datetime(), fmt("%s: registered as threaded") % (pmodule->name()));
-// //    } else {
-//         _logger.debug(fmt("%s: registered") % (pmodule->name()));
-// //    }
-//
-//     return true;
 // }
 //
 // /**
@@ -1458,24 +1554,6 @@ struct modulus
 // }
 //
 // template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// typename modulus<PFS_MODULUS_TEMPLETE_ARGS>::basic_module *
-// modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::find_registered_module (string_type const & name)
-// {
-//     typename module_spec_map_type::iterator first = _module_spec_map.begin();
-//     typename module_spec_map_type::iterator last  = _module_spec_map.end();
-//
-//     for (; first != last; ++first) {
-//         module_spec modspec = first->second;
-//         shared_ptr<basic_module> pmodule = modspec.pmodule;
-//
-//         if (pmodule->name() == name)
-//             return pmodule.get();
-//     }
-//
-//     return static_cast<basic_module *>(0);
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
 // bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::set_dependences (
 //           string_type const & name
 //         , string_type const & depends_name)
@@ -1499,7 +1577,7 @@ struct modulus
 //         return false;
 //     }
 //
-//     if (!master->use_async_slots()) {
+//     if (!master->use_queued_slots()) {
 //         _logger.error(fmt("%s: module must be asynchronous") % depends_name);
 //         return false;
 //     }
@@ -1507,102 +1585,6 @@ struct modulus
 //     static_cast<slave_module *>(slave)->set_master(static_cast<async_module *>(master));
 //
 //     return true;
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// bool modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::set_master_module (
-//         string_type const & name)
-// {
-//     basic_module * master = find_registered_module(name);
-//
-//     if (!master) {
-//         _logger.error(fmt("%s: master module not found") % name);
-//         return false;
-//     }
-//
-//     if (!master->use_async_slots()) {
-//         _logger.error(fmt("%s: module must be asynchronous") % name);
-//         return false;
-//     }
-//
-//     _master_module_ptr = master;
-//     return true;
-//
-// //     typename module_spec_map_type::iterator first = _module_spec_map.begin();
-// //     typename module_spec_map_type::iterator last  = _module_spec_map.end();
-// //
-// //     for (; first != last; ++first) {
-// //         module_spec modspec = first->second;
-// //         shared_ptr<basic_module> pmodule = modspec.pmodule;
-// //
-// //         if (pmodule->name() == name)
-// //             _master_module_ptr = pmodule.get();
-// //     }
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// int modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::exec_main ()
-// {
-//     int r = exit_status::success;
-//
-//     thread_sequence_type thread_pool;
-//
-//     typename runnable_sequence_type::iterator irunnable      = _runnable_modules.begin();
-//     typename runnable_sequence_type::iterator irunnable_last = _runnable_modules.end();
-//
-//     thread_function master_thread_function = 0;
-//
-//     for (; irunnable != irunnable_last; ++irunnable) {
-//         basic_module * m = irunnable->first;
-//         thread_function tfunc = irunnable->second;
-//
-//         // Handle deferred calls after start stage and before thread method call (run()).
-//         m->_queue_ptr->call_all();
-//
-//         // Run module if it is not a master
-//         if (m != _master_module_ptr)
-//             thread_pool.push_back(pfs::make_shared<thread>(tfunc, m));
-//         else
-//             master_thread_function = tfunc;
-//     }
-//
-//     // Run module if it is a master
-//     if (master_thread_function) {
-//         // Run dispatcher loop in separate thread
-//         thread dthread(& dispatcher::run, this);
-//
-//         // And call master function
-//         r = (_master_module_ptr->*master_thread_function)();
-//
-//         dthread.join();
-//     } else {
-//         this->run();
-//     }
-//
-//     typename thread_sequence_type::iterator ithread      = thread_pool.begin();
-//     typename thread_sequence_type::iterator ithread_last = thread_pool.end();
-//
-//     for (; ithread != ithread_last; ++ithread) {
-//         (*ithread)->join();
-//     }
-//
-//     return r;
-// }
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// int modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::exec ()
-// {
-//     int r = exit_status::failure;
-//
-//     connect_all();
-//
-//     if (start()) {
-//         r = exec_main();
-//     }
-//
-//     finalize();
-//
-//     return r;
 // }
 //
 // template <PFS_MODULUS_TEMPLETE_SIGNATURE>
@@ -1623,13 +1605,13 @@ struct modulus
 } // namespace pfs
 
 // #define PFS_MODULE_API          extern "C" PFS_DLL_API
-//
-// #define PFS_DETECTOR_CAST(slot) reinterpret_cast<detector_handler>(& slot)
+
 // #define PFS_EMITTER_CAST(e)     reinterpret_cast<void *>(& e)
-//
-// #define PFS_MODULE_EMITTER(id, em) { id , PFS_EMITTER_CAST(em) }
-// #define PFS_MODULE_DETECTOR(id, dt) { id , PFS_DETECTOR_CAST(dt) }
-//
+// #define PFS_DETECTOR_CAST(slot) reinterpret_cast<detector_handler>(& slot)
+
+#define PFS_MODULE_EMITTER(id, em) { id , reinterpret_cast<void *>(& em) } //PFS_EMITTER_CAST(em) }
+#define PFS_MODULE_DETECTOR(id, dt) { id , reinterpret_cast<detector_handler>(& dt) } // PFS_DETECTOR_CAST(dt) }
+
 // #define PFS_MODULE_EMITTERS_EXTERN                                             \
 //     emitter_mapper_pair const *                                                \
 //     get_emitters (int & count) override;
@@ -1640,18 +1622,18 @@ struct modulus
 // {                                                                              \
 //     static emitter_mapper_pair __emitter_mapper[] = {
 //
-// #define PFS_MODULE_EMITTERS_INLINE_BEGIN                                       \
-// emitter_mapper_pair const *                                                    \
-// get_emitters (int & count) override                                            \
-// {                                                                              \
-//     static emitter_mapper_pair __emitter_mapper[] = {
-//
-// #define PFS_MODULE_EMITTERS_END                                                \
-//     };                                                                         \
-//     count = sizeof(__emitter_mapper)/sizeof(__emitter_mapper[0]);              \
-//     return & __emitter_mapper[0];                                              \
-// }
-//
+#define PFS_MODULE_EMITTERS_INLINE_BEGIN                                       \
+virtual emitter_mapper_pair const *                                            \
+get_emitters (int & count) override                                            \
+{                                                                              \
+    static emitter_mapper_pair __emitter_mapper[] = {
+
+#define PFS_MODULE_EMITTERS_END                                                \
+    };                                                                         \
+    count = sizeof(__emitter_mapper)/sizeof(__emitter_mapper[0]);              \
+    return & __emitter_mapper[0];                                              \
+}
+
 // #define PFS_MODULE_DETECTORS_EXTERN                                            \
 // detector_mapper_pair const *                                                   \
 // get_detectors (int & count) override;
@@ -1662,14 +1644,14 @@ struct modulus
 // {                                                                              \
 //     static detector_mapper_pair __detector_mapper[] = {
 //
-// #define PFS_MODULE_DETECTORS_INLINE_BEGIN                                      \
-// detector_mapper_pair const *                                                   \
-// get_detectors (int & count) override                                           \
-// {                                                                              \
-//     static detector_mapper_pair __detector_mapper[] = {
-//
-// #define PFS_MODULE_DETECTORS_END                                               \
-//     };                                                                         \
-//     count = sizeof(__detector_mapper)/sizeof(__detector_mapper[0]);            \
-//     return & __detector_mapper[0];                                             \
-// }
+#define PFS_MODULE_DETECTORS_INLINE_BEGIN                                      \
+virtual detector_mapper_pair const *                                           \
+get_detectors (int & count) override                                           \
+{                                                                              \
+    static detector_mapper_pair __detector_mapper[] = {
+
+#define PFS_MODULE_DETECTORS_END                                               \
+    };                                                                         \
+    count = sizeof(__detector_mapper)/sizeof(__detector_mapper[0]);            \
+    return & __detector_mapper[0];                                             \
+}

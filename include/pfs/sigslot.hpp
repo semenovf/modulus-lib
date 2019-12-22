@@ -103,7 +103,8 @@ struct sigslot
         virtual basic_slot_holder * master () const
         {
             assert(this->is_slave());
-            return 0;
+            assert(false); // Must be reimplemented in slave_slot_holder
+            return nullptr;
         }
 
         void signal_connect (basic_signal * sender)
@@ -168,6 +169,9 @@ struct sigslot
         }
     };
 
+////////////////////////////////////////////////////////////////////////////////
+// queued_slot_holder
+////////////////////////////////////////////////////////////////////////////////
     class queued_slot_holder : public basic_slot_holder
     {
     public:

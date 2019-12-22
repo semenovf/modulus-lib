@@ -22,6 +22,9 @@ add_test(NAME active_queue COMMAND active_queue)
 
 add_executable(modulus modulus.cpp)
 target_link_libraries(modulus ${CMAKE_THREAD_LIBS_INIT})
+if (UNIX)
+    target_link_libraries(modulus dl)
+endif()
 add_test(NAME modulus COMMAND modulus)
 
 add_executable(dynamic_library dynamic_library.cpp)
