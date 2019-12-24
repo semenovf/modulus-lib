@@ -106,7 +106,7 @@ struct modulus
     typedef struct { int id; void * emitter; }            emitter_mapper_pair;
     typedef struct { int id; detector_handler detector; } detector_mapper_pair;
 
-    using module_ctor_t = basic_module * (*)(dispatcher * pdisp, char const * name, void *);
+    using module_ctor_t = basic_module * (*)(void);
     using module_dtor_t = void  (*)(basic_module *);
 
     // see [std::make_unique](http://en.cppreference.com/w/cpp/memory/unique_ptr/make_unique)
@@ -801,11 +801,9 @@ struct modulus
          * @brief Register module represented as shared object specified by @a path.
          */
         bool register_module_for_path (string_type const & path
-                , string_type const & name
-                , const char * class_name = 0
-                , void * mod_data = 0)
+                , string_type const & name)
         {
-            module_spec modspec = module_for_path(path, class_name, mod_data);
+            module_spec modspec = module_for_path(path);
 
             if (modspec.pmodule) {
                 modspec.pmodule->set_name(name);
@@ -820,11 +818,9 @@ struct modulus
          *
          * @details Actual path for shared object based on @a name constructed
          */
-        bool register_module_for_name (string_type const & name
-                , char const * class_name = 0
-                , void * mod_data = 0)
+        bool register_module_for_name (string_type const & name)
         {
-            module_spec modspec = module_for_name(name, class_name, mod_data);
+            module_spec modspec = module_for_name(name);
 
             if (modspec.pmodule) {
                 modspec.pmodule->set_name(name);
@@ -912,9 +908,7 @@ struct modulus
         }
 
     protected:
-        module_spec module_for_path (fs::path const & path
-                , char const * class_name = nullptr
-                , void * mod_data = nullptr)
+        module_spec module_for_path (fs::path const & path)
         {
             static char const * module_ctor_name = "__module_ctor__";
             static char const * module_dtor_name = "__module_dtor__";
@@ -957,7 +951,7 @@ struct modulus
             module_ctor_t module_ctor = void_func_ptr_cast<module_ctor_t>(ctor);
             module_dtor_t module_dtor = void_func_ptr_cast<module_dtor_t>(dtor);
 
-            basic_module * ptr = module_ctor(this, class_name, mod_data);
+            basic_module * ptr = module_ctor();
 
             if (!ptr)
                 return module_spec();
@@ -969,12 +963,10 @@ struct modulus
             return result;
         }
 
-        module_spec module_for_name (string_type const & name
-                , char const * class_name = 0
-                , void * mod_data = 0 )
+        module_spec module_for_name (string_type const & name)
         {
             auto modpath = dynamic_library::build_dl_filename(name);
-            return module_for_path(modpath, class_name, mod_data);
+            return module_for_path(modpath);
         }
 
         bool register_module (module_spec const & modspec)
@@ -1142,7 +1134,17 @@ struct modulus
 // }
 } // namespace pfs
 
-// #define PFS_MODULE_API          extern "C" PFS_DLL_API
+#ifndef PFS_MODULE_EXPORT
+#   if defined(_WIN32) || defined(_WIN64)
+#       if PFS_MODULE_EXPORTS
+#           define PFS_MODULE_API __declspec(dllexport)
+#       else
+#           define PFS_MODULE_API __declspec(dllimport)
+#       endif
+#   else
+#       define PFS_MODULE_EXPORT
+#   endif
+#endif
 
 // #define PFS_EMITTER_CAST(e)     reinterpret_cast<void *>(& e)
 // #define PFS_DETECTOR_CAST(slot) reinterpret_cast<detector_handler>(& slot)
@@ -1150,21 +1152,21 @@ struct modulus
 #define PFS_MODULE_EMITTER(id, em) { id , reinterpret_cast<void *>(& em) } //PFS_EMITTER_CAST(em) }
 #define PFS_MODULE_DETECTOR(id, dt) { id , reinterpret_cast<detector_handler>(& dt) } // PFS_DETECTOR_CAST(dt) }
 
-// #define PFS_MODULE_EMITTERS_EXTERN                                             \
-//     emitter_mapper_pair const *                                                \
-//     get_emitters (int & count) override;
-//
-// #define PFS_MODULE_EMITTERS_BEGIN(XMOD)                                        \
-// XMOD::emitter_mapper_pair const *                                              \
-// XMOD::get_emitters (int & count)                                               \
-// {                                                                              \
-//     static emitter_mapper_pair __emitter_mapper[] = {
-//
+#define PFS_MODULE_EMITTERS_EXTERN                                             \
+    virtual emitter_mapper_pair const *                                        \
+    get_emitters (int & count) override;
+
+#define PFS_MODULE_EMITTERS_BEGIN(XMOD)                                        \
+    XMOD::emitter_mapper_pair const *                                          \
+    XMOD::get_emitters (int & count)                                           \
+    {                                                                          \
+        static emitter_mapper_pair __emitter_mapper[] = {
+
 #define PFS_MODULE_EMITTERS_INLINE_BEGIN                                       \
-virtual emitter_mapper_pair const *                                            \
-get_emitters (int & count) override                                            \
-{                                                                              \
-    static emitter_mapper_pair __emitter_mapper[] = {
+    virtual emitter_mapper_pair const *                                        \
+    get_emitters (int & count) override                                        \
+    {                                                                          \
+        static emitter_mapper_pair __emitter_mapper[] = {
 
 #define PFS_MODULE_EMITTERS_END                                                \
     };                                                                         \
@@ -1172,16 +1174,16 @@ get_emitters (int & count) override                                            \
     return & __emitter_mapper[0];                                              \
 }
 
-// #define PFS_MODULE_DETECTORS_EXTERN                                            \
-// detector_mapper_pair const *                                                   \
-// get_detectors (int & count) override;
-//
-// #define PFS_MODULE_DETECTORS_BEGIN(XMOD)                                       \
-// XMOD::detector_mapper_pair const *                                             \
-// XMOD::get_detectors (int & count)                                              \
-// {                                                                              \
-//     static detector_mapper_pair __detector_mapper[] = {
-//
+#define PFS_MODULE_DETECTORS_EXTERN                                            \
+    virtual detector_mapper_pair const *                                       \
+    get_detectors (int & count) override;
+
+#define PFS_MODULE_DETECTORS_BEGIN(XMOD)                                       \
+    XMOD::detector_mapper_pair const *                                         \
+    XMOD::get_detectors (int & count)                                          \
+    {                                                                          \
+        static detector_mapper_pair __detector_mapper[] = {
+
 #define PFS_MODULE_DETECTORS_INLINE_BEGIN                                      \
 virtual detector_mapper_pair const *                                           \
 get_detectors (int & count) override                                           \

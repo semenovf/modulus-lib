@@ -4,14 +4,19 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.23 Initial version (inhereted from https://github.com/semenovf/pfs)
+//      2019.12.23 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include <pfs/modulus.hpp>
+#include "modulus.hpp"
 
 namespace mod {
 namespace db {
 
-
+class module : public modulus::module
+{
+public:
+    PFS_MODULE_EMITTERS_EXTERN
+    PFS_MODULE_DETECTORS_EXTERN
+};
 
 }} // namespace mod::db
