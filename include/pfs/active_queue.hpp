@@ -8,6 +8,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -48,19 +49,22 @@ private:
     std::atomic_size_t   _count;
     mutable mutex_type   _mutex;
 
+    // TODO Use cv to control queue fullness
+    //mutable mutex_type      _non_empty_queue_mutex;
+    std::condition_variable _non_empty_queue_cv;
+
 private:
     void push_helper (std::function<void ()> && func)
     {
         std::unique_lock<mutex_type> locker(_mutex);
 
-        if (_queue.size() > GC_THRESHOLD
-                && _queue.begin()->first == FREE) {
+        if (_queue.size() > GC_THRESHOLD && _queue.begin()->first == FREE)
             gc();
-        }
 
         _queue.emplace_back(std::make_pair(BUSY, std::move(func)));
 
         ++_count;
+        _non_empty_queue_cv.notify_one();
     }
 
     iterator front_busy ()

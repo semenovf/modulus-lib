@@ -240,7 +240,8 @@ static modulus_ns::api_item_type API[] = {
 
 TEST_CASE("Modulus basics") {
 
-    modulus_ns::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]));
+    pfs::simple_logger logger;
+    modulus_ns::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), logger);
 
     CHECK(dispatcher.register_regular_module<emitter_module>("emitter_module"));
     CHECK(dispatcher.register_regular_module<detector_module>("detector_module"));
