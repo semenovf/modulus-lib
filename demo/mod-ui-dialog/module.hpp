@@ -4,15 +4,16 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.23 Initial version
+//      2020.01.05 Initial version.
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "modulus.hpp"
 
 namespace mod {
-namespace db {
+namespace ui {
+namespace dialog {
 
-class module : public modulus::module
+class module : public modulus::slave_module
 {
 public:
     MODULUS_DECL_EMITTERS
@@ -22,6 +23,8 @@ private:
     virtual bool on_loaded () override;
     virtual bool on_start () override;
     virtual bool on_finish () override;
+
+    void onUiReady ();
 };
 
-}} // namespace mod::db
+}}} // namespace mod::ui::dialog

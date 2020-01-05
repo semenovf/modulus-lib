@@ -57,15 +57,15 @@ public:
         return true;
     }
 
-    PFS_MODULE_EMITTERS_INLINE_BEGIN
-          PFS_MODULE_EMITTER(0, emitZeroArg)
-        , PFS_MODULE_EMITTER(1, emitOneArg)
-        , PFS_MODULE_EMITTER(2, emitTwoArgs)
-        , PFS_MODULE_EMITTER(3, emitThreeArgs)
-        , PFS_MODULE_EMITTER(4, emitFourArgs)
-        , PFS_MODULE_EMITTER(5, emitFiveArgs)
-        , PFS_MODULE_EMITTER(6, emitSixArgs)
-    PFS_MODULE_EMITTERS_END
+    MODULUS_BEGIN_INLINE_EMITTERS
+          MODULUS_EMITTER(0, emitZeroArg)
+        , MODULUS_EMITTER(1, emitOneArg)
+        , MODULUS_EMITTER(2, emitTwoArgs)
+        , MODULUS_EMITTER(3, emitThreeArgs)
+        , MODULUS_EMITTER(4, emitFourArgs)
+        , MODULUS_EMITTER(5, emitFiveArgs)
+        , MODULUS_EMITTER(6, emitSixArgs)
+    MODULUS_END_EMITTERS
 
 public: /*signal*/
     modulus_ns::sigslot_ns::signal<> emitZeroArg;
@@ -98,15 +98,15 @@ public:
         return true;
     }
 
-    PFS_MODULE_DETECTORS_INLINE_BEGIN
-          PFS_MODULE_DETECTOR(0, detector_module::onZeroArg)
-        , PFS_MODULE_DETECTOR(1, detector_module::onOneArg)
-        , PFS_MODULE_DETECTOR(2, detector_module::onTwoArgs)
-        , PFS_MODULE_DETECTOR(3, detector_module::onThreeArgs)
-        , PFS_MODULE_DETECTOR(4, detector_module::onFourArgs)
-        , PFS_MODULE_DETECTOR(5, detector_module::onFiveArgs)
-        , PFS_MODULE_DETECTOR(6, detector_module::onSixArgs)
-    PFS_MODULE_DETECTORS_END
+    MODULUS_BEGIN_INLINE_DETECTORS
+          MODULUS_DETECTOR(0, detector_module::onZeroArg)
+        , MODULUS_DETECTOR(1, detector_module::onOneArg)
+        , MODULUS_DETECTOR(2, detector_module::onTwoArgs)
+        , MODULUS_DETECTOR(3, detector_module::onThreeArgs)
+        , MODULUS_DETECTOR(4, detector_module::onFourArgs)
+        , MODULUS_DETECTOR(5, detector_module::onFiveArgs)
+        , MODULUS_DETECTOR(6, detector_module::onSixArgs)
+    MODULUS_END_DETECTORS
 
 private:
     void onZeroArg ()
@@ -180,9 +180,7 @@ class slave_module : public modulus_ns::slave_module
 
 public:
     slave_module () : modulus_ns::slave_module()
-    {
-//         set_master(master);
-    }
+    {}
 
     ~slave_module ()
     {}
@@ -200,15 +198,15 @@ public:
         return true;
     }
 
-    PFS_MODULE_EMITTERS_INLINE_BEGIN
-          PFS_MODULE_EMITTER(1, emitOneArg)
-        , PFS_MODULE_EMITTER(2, emitTwoArgs)
-    PFS_MODULE_EMITTERS_END
+    MODULUS_BEGIN_INLINE_EMITTERS
+          MODULUS_EMITTER(1, emitOneArg)
+        , MODULUS_EMITTER(2, emitTwoArgs)
+    MODULUS_END_EMITTERS
 
-    PFS_MODULE_DETECTORS_INLINE_BEGIN
-          PFS_MODULE_DETECTOR (1, slave_module::onOneArg)
-        , PFS_MODULE_DETECTOR (2, slave_module::onTwoArgs)
-    PFS_MODULE_DETECTORS_END
+    MODULUS_BEGIN_INLINE_DETECTORS
+          MODULUS_DETECTOR (1, slave_module::onOneArg)
+        , MODULUS_DETECTOR (2, slave_module::onTwoArgs)
+    MODULUS_END_DETECTORS
 
 public: /*signal*/
     modulus_ns::sigslot_ns::signal<bool> emitOneArg;
@@ -243,12 +241,12 @@ TEST_CASE("Modulus basics") {
     pfs::simple_logger logger;
     modulus_ns::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), logger);
 
-    CHECK(dispatcher.register_regular_module<emitter_module>("emitter_module"));
-    CHECK(dispatcher.register_regular_module<detector_module>("detector_module"));
-    CHECK(dispatcher.register_async_module<async_module>("async_module", & async_module::run));
-    CHECK(dispatcher.register_slave_module<slave_module>("slave_module", "async_module"));
+    CHECK(dispatcher.register_module<emitter_module>(std::make_pair("emitter_module", "")));
+    CHECK(dispatcher.register_module<detector_module>(std::make_pair("detector_module", "")));
+    CHECK(dispatcher.register_module<async_module>(std::make_pair("async_module", "")));
+    CHECK(dispatcher.register_module<slave_module>(std::make_pair("slave_module", "async_module")));
 
-    CHECK_FALSE(dispatcher.register_module_for_name("module-for-test-app-nonexistence"));
+    CHECK_FALSE(dispatcher.register_module_for_name(std::make_pair("module-for-test-app-nonexistence", "")));
 
     CHECK(dispatcher.count() == 4);
     CHECK(dispatcher.exec() == 0);

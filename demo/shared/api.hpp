@@ -4,10 +4,10 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.23 Initial version.
+//      2020.01.05 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-#include "pfs/modulus.hpp"
 
-using modulus = pfs::modulus<>;
-
+enum {
+    API_UI_READY
+};

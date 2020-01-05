@@ -7,12 +7,13 @@
 //      2020.01.05 Initial version.
 ////////////////////////////////////////////////////////////////////////////////
 #include "module.hpp"
+#include "api.hpp"
 
 extern "C" {
 
 modulus::basic_module * __module_ctor__ (void)
 {
-    return new mod::db::module;
+    return new mod::ui::dialog::module;
 }
 
 void  __module_dtor__ (modulus::basic_module * m)
@@ -23,12 +24,14 @@ void  __module_dtor__ (modulus::basic_module * m)
 } // extern "C"
 
 namespace mod {
-namespace db {
+namespace ui {
+namespace dialog {
 
 MODULUS_BEGIN_EMITTERS(module)
 MODULUS_END_EMITTERS
 
 MODULUS_BEGIN_DETECTORS(module)
+    MODULUS_DETECTOR(API_UI_READY, module::onUiReady)
 MODULUS_END_DETECTORS
 
 bool module::on_loaded ()
@@ -49,4 +52,9 @@ bool module::on_finish ()
     return true;
 }
 
-}} // namespace mod::db
+void module::onUiReady ()
+{
+    log_debug("onUiReady()");
+}
+
+}}} // namespace mod::ui::dialog

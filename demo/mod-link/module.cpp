@@ -12,7 +12,7 @@ extern "C" {
 
 modulus::basic_module * __module_ctor__ (void)
 {
-    return new mod::db::module;
+    return new mod::link::module;
 }
 
 void  __module_dtor__ (modulus::basic_module * m)
@@ -23,7 +23,7 @@ void  __module_dtor__ (modulus::basic_module * m)
 } // extern "C"
 
 namespace mod {
-namespace db {
+namespace link {
 
 MODULUS_BEGIN_EMITTERS(module)
 MODULUS_END_EMITTERS
@@ -49,4 +49,4 @@ bool module::on_finish ()
     return true;
 }
 
-}} // namespace mod::db
+}} // namespace mod::link
