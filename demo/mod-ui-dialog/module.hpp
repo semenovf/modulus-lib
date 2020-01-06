@@ -24,7 +24,7 @@ private:
     virtual bool on_start () override;
     virtual bool on_finish () override;
 
-    void onUiReady ();
+    void onUiReady (bool ready);
 };
 
 }}} // namespace mod::ui::dialog

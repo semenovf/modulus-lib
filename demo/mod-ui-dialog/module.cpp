@@ -52,9 +52,9 @@ bool module::on_finish ()
     return true;
 }
 
-void module::onUiReady ()
+void module::onUiReady (bool ready)
 {
-    log_debug("onUiReady()");
+    log_debug(fmt("UI Ready: %s") % (ready ? "yes" : "no"));
 }
 
 }}} // namespace mod::ui::dialog

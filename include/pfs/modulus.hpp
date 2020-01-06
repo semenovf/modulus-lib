@@ -717,7 +717,7 @@ struct modulus
                 m->_queue_ptr->call_all();
 
                 // Run module if it is not a master
-                if (m != _master_module_ptr)
+                if (m != _main_module_ptr)
                     thread_pool.push_back(std::make_shared<std::thread>(tfunc, m));
                 else
                     master_thread_function = tfunc;
@@ -729,7 +729,7 @@ struct modulus
                 std::thread dthread(& dispatcher::run, this);
 
                 // And call master function
-                r = (_master_module_ptr->*master_thread_function)();
+                r = (_main_module_ptr->*master_thread_function)();
 
                 dthread.join();
             } else {
@@ -757,7 +757,7 @@ struct modulus
             , warn_printer(& dispatcher::sync_print_warn)
             , error_printer(& dispatcher::sync_print_error)
             , _quit_flag(0)
-            , _master_module_ptr(nullptr)
+            , _main_module_ptr(nullptr)
             , _plog(& logger)
         {
             register_api(mapper, n);
@@ -1033,19 +1033,19 @@ struct modulus
          */
         bool set_main_module (string_type const & name)
         {
-            basic_module * master = find_registered_module(name);
+            basic_module * main_module = find_registered_module(name);
 
-            if (!master) {
-                log_error(fmt("%s: master module not found") % name);
+            if (!main_module) {
+                log_error(fmt("%s: main module not found") % name);
                 return false;
             }
 
-            if (!master->use_queued_slots()) {
-                log_error(fmt("%s: module must be asynchronous") % name);
+            if (!main_module->use_queued_slots()) {
+                log_error(fmt("%s: main module must be asynchronous") % name);
                 return false;
             }
 
-            _master_module_ptr = master;
+            _main_module_ptr = main_module;
             return true;
         }
 
@@ -1183,7 +1183,7 @@ struct modulus
         api_map_type           _api;
         module_spec_map_type   _module_spec_map;
         runnable_sequence_type _runnable_modules;  // modules run in a separate threads
-        basic_module *         _master_module_ptr; // TODO Unsuitable member name, rename it
+        basic_module *         _main_module_ptr;
         logger_type *          _plog = nullptr;
     }; // class dispatcher
 }; // struct modulus
