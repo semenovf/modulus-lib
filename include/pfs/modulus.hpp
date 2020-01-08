@@ -11,7 +11,6 @@
 #include "sigslot.hpp"
 #include "pfs/filesystem.hpp"
 #include "pfs/dynamic_library.hpp"
-#include "pfs/safeformat.hpp"
 #include <algorithm>
 #include <atomic>
 #include <deque>
@@ -21,6 +20,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <cstdio>
 
@@ -30,6 +30,38 @@
 #endif
 
 namespace pfs {
+
+template <typename ResultType, typename T>
+struct lexical_caster
+{
+    static ResultType cast (T const &);
+};
+
+template <typename T>
+struct lexical_caster<std::string, T>
+{
+    static inline std::string cast (T const & arg)
+    {
+        using std::to_string;
+        return to_string(arg);
+    }
+};
+
+template <>
+struct lexical_caster<std::string, std::string>
+{
+    static inline std::string cast (std::string const & arg)
+    {
+        return arg;
+    }
+};
+
+template <typename ResultType, typename T>
+inline ResultType lexical_cast (T const & arg)
+{
+    using pfs::lexical_caster;
+    return lexical_caster<ResultType, T>::cast(arg);
+}
 
 class basic_dispatcher
 {
@@ -163,8 +195,6 @@ struct modulus
     using sigslot_ns = sigslot<callback_queue_type, BasicLockable>;
     using emitter_type  = typename sigslot_ns::template signal<>;
 
-    using fmt = safeformat;
-
     using detector_handler = void (basic_module::*)(void *);
     typedef struct { int id; void * emitter; }            emitter_mapper_pair;
     typedef struct { int id; detector_handler detector; } detector_mapper_pair;
@@ -186,6 +216,25 @@ struct modulus
     {
         return std::unique_ptr<TargetType>{static_cast<TargetType *>(src.release())};
     }
+
+    template <typename T>
+    static inline string_type concat (T const & arg)
+    {
+        using pfs::lexical_cast;
+        return lexical_cast<string_type>(arg);
+    }
+
+    template <typename T, typename ...Ts>
+    static inline string_type concat (T const & arg, Ts const &... args)
+    {
+        using pfs::lexical_cast;
+        return lexical_cast<string_type>(arg) + concat(args...);
+    }
+
+//     inline void log_error (string_type const & s)
+//     {
+//         _internal_logger.error(lexical_cast<std::string>(s));
+//     }
 
     struct detector_pair
     {
@@ -592,7 +641,7 @@ struct modulus
                 std::shared_ptr<basic_module> & pmodule = modspec.pmodule;
                 pmodule->emit_module_registered.disconnect(this);
 
-                log_debug(fmt("%s: unregistered") % (pmodule->name()));
+                log_debug(concat(pmodule->name(), string_type(": unregistered")));
 
                 // Need to destroy pmodule before dynamic library will be destroyed automatically
                 pmodule.reset();
@@ -613,13 +662,13 @@ struct modulus
                 std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
                 if (pmodule->is_slave() && pmodule->master() == 0) {
-                    log_error(fmt("%s: module is slave but has no master") % pmodule->name());
+                    log_error(concat(pmodule->name(), string_type(": module is slave but has no master")));
                     ok = false;
                 }
 
                 if (ok) {
                     if (! pmodule->on_start()) {
-                        log_error(fmt("%s: failed to start module") % pmodule->name());
+                        log_error(concat(pmodule->name(), string_type(": failed to start module")));
                         ok = false;
                         pmodule->_started = false;
                     } else {
@@ -750,7 +799,7 @@ struct modulus
         dispatcher (dispatcher const &) = delete;
         dispatcher & operator = (dispatcher const &) = delete;
 
-        dispatcher (api_item_type * mapper, int n, logger_type & logger)
+        dispatcher (api_item_type * mapper, int n, logger_type * logger)
             : basic_dispatcher()
             , info_printer(& dispatcher::sync_print_info)
             , debug_printer(& dispatcher::sync_print_debug)
@@ -758,8 +807,9 @@ struct modulus
             , error_printer(& dispatcher::sync_print_error)
             , _quit_flag(0)
             , _main_module_ptr(nullptr)
-            , _plog(& logger)
+            , _plog(logger)
         {
+            assert(_plog);
             register_api(mapper, n);
         }
 
@@ -822,7 +872,6 @@ struct modulus
         bool register_module_helper (std::pair<string_type, string_type> const & name
                 , module_spec const & modspec)
         {
-            using std::to_string;
             int nemitters, ndetectors;
 
             if (!modspec.pmodule)
@@ -838,22 +887,21 @@ struct modulus
                                 & async_module::thread_function_helper)));
             } else {
                 if (pmodule->is_slave()) {
-                    if (dep_module_name.empty()) {
-                        log_error(fmt("%s: master module must be specified for slave")
-                                % module_name);
+                    if (dep_module_name == "") {
+                        log_error(concat(module_name
+                                , string_type(": master module must be specified for slave")));
                         return false;
                     }
 
                     basic_module * master = this->find_registered_module(dep_module_name);
 
                     if (!master) {
-                        log_error(fmt("%s: module not found") % dep_module_name);
+                        log_error(concat(dep_module_name, string_type(": module not found")));
                         return false;
                     }
 
                     if (!master->use_queued_slots()) {
-                        log_error(fmt("%s: module must be asynchronous")
-                                % dep_module_name);
+                        log_error(concat(dep_module_name, string_type(": module must be asynchronous")));
                         return false;
                     }
 
@@ -863,7 +911,7 @@ struct modulus
             }
 
             if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
-                log_error(fmt("%s: module already registered") % (pmodule->name()));
+                log_error(concat(pmodule->name(), string_type(": module already registered")));
                 return false;
             }
 
@@ -871,7 +919,7 @@ struct modulus
             pmodule->set_name(module_name);
 
             if (!pmodule->on_loaded()) {
-                log_error(fmt("%s: on_loaded stage failed") % pmodule->name());
+                log_error(concat(pmodule->name(), string_type(": on_loaded stage failed")));
                 return false;
             }
 
@@ -888,10 +936,11 @@ struct modulus
                     if (it != it_end) {
                         it->second->mapper->append_emitter(reinterpret_cast<emitter_type *>(emitters[i].emitter));
                     } else {
-                        log_warn(fmt("%s: emitter '%s' not found while registering module, "
-                                "may be signal/slot mapping is not supported for this application")
-                                % pmodule->name()
-                                % to_string(emitters[i].id));
+                        log_warn(concat(pmodule->name()
+                                , string_type(": emitter '")
+                                , lexical_cast<string_type>(emitters[i].id)
+                                , string_type("' not found while registering module, "
+                                              "may be signal/slot mapping is not supported for this application")));
                     }
                 }
             }
@@ -904,10 +953,11 @@ struct modulus
                     if (it != it_end) {
                         it->second->mapper->append_detector(pmodule.get(), detectors[i].detector);
                     } else {
-                        log_warn(fmt("%s: detector '%s' not found while registering module, "
-                                "may be signal/slot mapping is not supported for this application")
-                                % pmodule->name()
-                                % to_string(detectors[i].id));
+                        log_warn(concat(pmodule->name()
+                                , string_type(": detector '")
+                                , lexical_cast<string_type>(detectors[i].id)
+                                , string_type("' not found while registering module, "
+                                              "may be signal/slot mapping is not supported for this application")));
                     }
                 }
             }
@@ -915,7 +965,7 @@ struct modulus
             pmodule->emit_module_registered.connect(this, & dispatcher::module_registered);
             _module_spec_map.insert(std::make_pair(pmodule->name(), modspec));
 
-            log_debug(fmt("%s: registered") % (pmodule->name()));
+            log_debug(concat(pmodule->name(), string_type(": registered")));
 
             return true;
         }
@@ -936,16 +986,17 @@ struct modulus
 
             //if (!pdl->open(dlpath, _searchdirs, ec)) {
             if (!pdl->open(dlpath, ec)) {
-                log_error(fmt("%s: %s") % dlpath.c_str() % ec.message());
+                // This is a critical section, so log output must not depends on logger
+                fprintf(stderr, "%s: %s\n", dlpath.c_str(), ec.message().c_str());
                 return module_spec();
             }
 
             dynamic_library::symbol_type ctor = pdl->resolve(module_ctor_name, ec);
 
             if (!ctor) {
-                log_error(fmt("%s: failed to resolve `ctor' for module: %s")
-                        % dlpath.c_str()
-                        % ec.message());
+                log_error(concat(dlpath.native()
+                        , string_type(": failed to resolve `ctor' for module: ")
+                        , ec.message()));
 
                 return module_spec();
             }
@@ -953,9 +1004,9 @@ struct modulus
             dynamic_library::symbol_type dtor = pdl->resolve(module_dtor_name, ec);
 
             if (!dtor) {
-                log_error(fmt("%s: failed to resolve `dtor' for module: %s")
-                        % dlpath.c_str()
-                        % ec.message());
+                log_error(concat(dlpath.native()
+                        , string_type(": failed to resolve `dtor' for module: ")
+                        , ec.message()));
 
                 return module_spec();
             }
@@ -983,7 +1034,8 @@ struct modulus
 
         module_spec module_for_name (std::pair<string_type, string_type> const & name)
         {
-            auto modpath = dynamic_library::build_dl_filename(name.first);
+            auto dl_filename = lexical_cast<dynamic_library::string_type>(name.first);
+            auto modpath = dynamic_library::build_dl_filename(dl_filename);
             return module_for_path(modpath);
         }
 
@@ -1036,12 +1088,12 @@ struct modulus
             basic_module * main_module = find_registered_module(name);
 
             if (!main_module) {
-                log_error(fmt("%s: main module not found") % name);
+                log_error(concat(name, string_type(": main module not found")));
                 return false;
             }
 
             if (!main_module->use_queued_slots()) {
-                log_error(fmt("%s: main module must be asynchronous") % name);
+                log_error(concat(name, string_type(": main module must be asynchronous")));
                 return false;
             }
 
