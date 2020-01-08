@@ -54,7 +54,7 @@ bool module::on_finish ()
 
 void module::onUiReady (bool ready)
 {
-    log_debug(fmt("UI Ready: %s") % (ready ? "yes" : "no"));
+    log_debug(modulus::string_type("UI Ready: ") + (ready ? "yes" : "no"));
 }
 
 }}} // namespace mod::ui::dialog

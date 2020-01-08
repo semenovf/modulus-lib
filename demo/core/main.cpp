@@ -28,7 +28,7 @@ static modulus::api_item_type API[] = {
 int main (int argc, char * argv[])
 {
     pfs::simple_logger logger;
-    modulus::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), logger);
+    modulus::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), & logger);
     pdisp = & dispatcher;
     pdisp->set_quit_handler(quit_app);
 
