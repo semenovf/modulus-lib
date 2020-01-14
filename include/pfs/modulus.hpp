@@ -5,6 +5,7 @@
 //
 // Changelog:
 //      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
+//      2020.01.13 Added support for module configuration (pass user data, application settings)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "active_queue.hpp"
@@ -155,6 +156,8 @@ using default_sequence_container = std::list<T>;
 template <typename T>
 using default_queue_container = std::deque<T>;
 
+struct default_settings {};
+
 struct simple_logger
 {
     void info (std::string const & msg)  { fprintf(stdout, "%s\n", msg.c_str()); }
@@ -165,6 +168,7 @@ struct simple_logger
 
 template <typename LoggerType = simple_logger
         , typename StringType = std::string
+        , typename SettingsType = default_settings
 
         // For storing API map and module specs
         , template <typename, typename> class AssociativeContainer = default_associative_container
@@ -185,6 +189,7 @@ struct modulus
     class async_module;
     class dispatcher;
 
+    using settings_type = SettingsType;
     using logger_type = LoggerType;
     using string_type = StringType;
 
@@ -392,7 +397,7 @@ struct modulus
         /**
          * @brief Module's on_start() method called after loaded and connection completed.
          */
-        virtual bool on_start ()
+        virtual bool on_start (settings_type const &)
         {
             return true;
         }
@@ -652,6 +657,8 @@ struct modulus
 
         bool start ()
         {
+            assert(_psettings);
+
             bool ok = true;
 
             auto first = _module_spec_map.begin();
@@ -667,7 +674,7 @@ struct modulus
                 }
 
                 if (ok) {
-                    if (! pmodule->on_start()) {
+                    if (! pmodule->on_start(*_psettings)) {
                         log_error(concat(pmodule->name(), string_type(": failed to start module")));
                         ok = false;
                         pmodule->_started = false;
@@ -799,7 +806,9 @@ struct modulus
         dispatcher (dispatcher const &) = delete;
         dispatcher & operator = (dispatcher const &) = delete;
 
-        dispatcher (api_item_type * mapper, int n, logger_type * logger)
+        dispatcher (api_item_type * mapper, int n
+                , settings_type & settings
+                , logger_type & logger)
             : basic_dispatcher()
             , info_printer(& dispatcher::sync_print_info)
             , debug_printer(& dispatcher::sync_print_debug)
@@ -807,7 +816,8 @@ struct modulus
             , error_printer(& dispatcher::sync_print_error)
             , _quit_flag(0)
             , _main_module_ptr(nullptr)
-            , _plog(logger)
+            , _psettings(& settings)
+            , _plog(& logger)
         {
             assert(_plog);
             register_api(mapper, n);
@@ -1236,6 +1246,7 @@ struct modulus
         module_spec_map_type   _module_spec_map;
         runnable_sequence_type _runnable_modules;  // modules run in a separate threads
         basic_module *         _main_module_ptr;
+        settings_type *        _psettings = nullptr;
         logger_type *          _plog = nullptr;
     }; // class dispatcher
 }; // struct modulus
