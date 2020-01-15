@@ -21,6 +21,9 @@ add_executable(active_queue active_queue.cpp)
 target_link_libraries(active_queue Threads::Threads)
 add_test(NAME active_queue COMMAND active_queue)
 
+add_executable(timer timer.cpp)
+target_link_libraries(timer Threads::Threads)
+
 add_executable(modulus modulus.cpp)
 target_link_libraries(modulus Threads::Threads)
 

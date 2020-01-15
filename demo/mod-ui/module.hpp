@@ -20,7 +20,7 @@ public:
 
 private:
     virtual bool on_loaded () override;
-    virtual bool on_start () override;
+    virtual bool on_start (modulus::settings_type const &) override;
     virtual bool on_finish () override;
     virtual int run () override;
 

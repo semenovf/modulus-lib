@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2019,2020 Vladislav Trifochkin
+// Copyright (c) 2020 Vladislav Trifochkin
 //
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
@@ -27,8 +27,9 @@ static modulus::api_item_type API[] = {
 
 int main (int argc, char * argv[])
 {
+    pfs::default_settings settings;
     pfs::simple_logger logger;
-    modulus::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), & logger);
+    modulus::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), settings, logger);
     pdisp = & dispatcher;
     pdisp->set_quit_handler(quit_app);
 

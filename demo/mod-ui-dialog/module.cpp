@@ -40,7 +40,7 @@ bool module::on_loaded ()
     return true;
 }
 
-bool module::on_start ()
+bool module::on_start (modulus::settings_type const &)
 {
     log_debug("on_start()");
     return true;

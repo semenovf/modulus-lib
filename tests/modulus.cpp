@@ -12,18 +12,18 @@
 #include <cstring>
 #include <limits>
 
-using modulus_ns = pfs::modulus<>;
+using modulus = pfs::modulus<>;
 
-class emitter_module : public modulus_ns::module
+class emitter_module : public modulus::module
 {
 public:
-    emitter_module () : modulus_ns::module()
+    emitter_module () : modulus::module()
     {}
 
     ~emitter_module ()
     {}
 
-    virtual bool on_start () override
+    virtual bool on_start (modulus::settings_type const &) override
     {
         emitZeroArg();
 
@@ -68,27 +68,27 @@ public:
     MODULUS_END_EMITTERS
 
 public: /*signal*/
-    modulus_ns::sigslot_ns::signal<> emitZeroArg;
-    modulus_ns::sigslot_ns::signal<bool> emitOneArg;
-    modulus_ns::sigslot_ns::signal<bool, char> emitTwoArgs;
-    modulus_ns::sigslot_ns::signal<bool, char, short> emitThreeArgs;
-    modulus_ns::sigslot_ns::signal<bool, char, short, int> emitFourArgs;
-    modulus_ns::sigslot_ns::signal<bool, char, short, int, long> emitFiveArgs;
-    modulus_ns::sigslot_ns::signal<bool, char, short, int, long, const char *> emitSixArgs;
+    modulus::sigslot_ns::signal<> emitZeroArg;
+    modulus::sigslot_ns::signal<bool> emitOneArg;
+    modulus::sigslot_ns::signal<bool, char> emitTwoArgs;
+    modulus::sigslot_ns::signal<bool, char, short> emitThreeArgs;
+    modulus::sigslot_ns::signal<bool, char, short, int> emitFourArgs;
+    modulus::sigslot_ns::signal<bool, char, short, int, long> emitFiveArgs;
+    modulus::sigslot_ns::signal<bool, char, short, int, long, const char *> emitSixArgs;
 };
 
-class detector_module : public modulus_ns::module
+class detector_module : public modulus::module
 {
     int _counter = 0;
 
 public:
-    detector_module () : modulus_ns::module()
+    detector_module () : modulus::module()
     {}
 
     ~detector_module ()
     {}
 
-    virtual bool on_start () override
+    virtual bool on_start (modulus::settings_type const &) override
     {
         return true;
     }
@@ -156,10 +156,10 @@ private:
     }
 };
 
-class async_module : public modulus_ns::async_module
+class async_module : public modulus::async_module
 {
 public:
-    async_module () : modulus_ns::async_module()
+    async_module () : modulus::async_module()
     {}
 
     int run ()
@@ -174,18 +174,18 @@ public:
     }
 };
 
-class slave_module : public modulus_ns::slave_module
+class slave_module : public modulus::slave_module
 {
     int _counter = 0;
 
 public:
-    slave_module () : modulus_ns::slave_module()
+    slave_module () : modulus::slave_module()
     {}
 
     ~slave_module ()
     {}
 
-    virtual bool on_start () override
+    virtual bool on_start (modulus::settings_type const &) override
     {
         emitOneArg(true);
         emitTwoArgs(true, 'c');
@@ -209,8 +209,8 @@ public:
     MODULUS_END_DETECTORS
 
 public: /*signal*/
-    modulus_ns::sigslot_ns::signal<bool> emitOneArg;
-    modulus_ns::sigslot_ns::signal<bool, char> emitTwoArgs;
+    modulus::sigslot_ns::signal<bool> emitOneArg;
+    modulus::sigslot_ns::signal<bool, char> emitTwoArgs;
 
 public: /*slots*/
     void onOneArg (bool ok)
@@ -226,20 +226,21 @@ public: /*slots*/
     }
 };
 
-static modulus_ns::api_item_type API[] = {
-      { 0 , modulus_ns::make_mapper<>(), "ZeroArg()" }
-    , { 1 , modulus_ns::make_mapper<bool>(), "OneArg(bool b)\n\t boolean value" }
-    , { 2 , modulus_ns::make_mapper<bool, char>(), "TwoArgs(bool b, char ch)" }
-    , { 3 , modulus_ns::make_mapper<bool, char, short>(), "ThreeArgs(bool b, char ch, short n)" }
-    , { 4 , modulus_ns::make_mapper<bool, char, short, int>(), "FourArgs description" }
-    , { 5 , modulus_ns::make_mapper<bool, char, short, int, long>(), "FiveArgs description" }
-    , { 6 , modulus_ns::make_mapper<bool, char, short, int, long, const char*>(), "SixArgs description" }
+static modulus::api_item_type API[] = {
+      { 0 , modulus::make_mapper<>(), "ZeroArg()" }
+    , { 1 , modulus::make_mapper<bool>(), "OneArg(bool b)\n\t boolean value" }
+    , { 2 , modulus::make_mapper<bool, char>(), "TwoArgs(bool b, char ch)" }
+    , { 3 , modulus::make_mapper<bool, char, short>(), "ThreeArgs(bool b, char ch, short n)" }
+    , { 4 , modulus::make_mapper<bool, char, short, int>(), "FourArgs description" }
+    , { 5 , modulus::make_mapper<bool, char, short, int, long>(), "FiveArgs description" }
+    , { 6 , modulus::make_mapper<bool, char, short, int, long, const char*>(), "SixArgs description" }
 };
 
 TEST_CASE("Modulus basics") {
 
+    pfs::default_settings settings;
     pfs::simple_logger logger;
-    modulus_ns::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), & logger);
+    modulus::dispatcher dispatcher(API, sizeof(API) / sizeof(API[0]), settings, logger);
 
     CHECK(dispatcher.register_module<emitter_module>(std::make_pair("emitter_module", "")));
     CHECK(dispatcher.register_module<detector_module>(std::make_pair("detector_module", "")));
