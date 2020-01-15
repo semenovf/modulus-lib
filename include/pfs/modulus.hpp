@@ -10,6 +10,7 @@
 #pragma once
 #include "active_queue.hpp"
 #include "sigslot.hpp"
+#include "timer.hpp"
 #include "pfs/filesystem.hpp"
 #include "pfs/dynamic_library.hpp"
 #include <algorithm>
@@ -156,6 +157,8 @@ using default_sequence_container = std::list<T>;
 template <typename T>
 using default_queue_container = std::deque<T>;
 
+using default_timer_pool = timer_pool<>;
+
 struct default_settings {};
 
 struct simple_logger
@@ -169,6 +172,7 @@ struct simple_logger
 template <typename LoggerType = simple_logger
         , typename StringType = std::string
         , typename SettingsType = default_settings
+        , typename TimerPool = default_timer_pool
 
         // For storing API map and module specs
         , template <typename, typename> class AssociativeContainer = default_associative_container
@@ -192,6 +196,7 @@ struct modulus
     using settings_type = SettingsType;
     using logger_type = LoggerType;
     using string_type = StringType;
+    using timer_pool_type = TimerPool;
 
     using callback_queue_type = active_queue<QueueContainer
         , BasicLockable
@@ -235,11 +240,6 @@ struct modulus
         using pfs::lexical_cast;
         return lexical_cast<string_type>(arg) + concat(args...);
     }
-
-//     inline void log_error (string_type const & s)
-//     {
-//         _internal_logger.error(lexical_cast<std::string>(s));
-//     }
 
     struct detector_pair
     {
@@ -324,6 +324,16 @@ struct modulus
         void log_error (string_type const & s)
         {
             _pdispatcher->log_error(this, s);
+        }
+
+        typename timer_pool_type::timer_id acquire_timer (double delay
+                , double period
+                , typename timer_pool_type::callback_type && callback)
+        {
+            return _pdispatcher->acquire_timer(this
+                    , delay
+                    , period
+                    , std::forward<typename timer_pool_type::callback_type>(callback));
         }
 
     protected:
@@ -751,12 +761,16 @@ struct modulus
                 pqueue->call(5);
             }
 
+            // Destroy all timers before modules will destroyed
+            _ptimer_pool->destroy_all();
+
             pqueue->call_all();
         }
 
         int exec_main ()
         {
             int r = exit_status::success;
+            _ptimer_pool.reset(new timer_pool_type);
 
             thread_sequence_type thread_pool;
 
@@ -799,6 +813,7 @@ struct modulus
                 (*ithread)->join();
             }
 
+            _ptimer_pool.reset(nullptr);
             return r;
         }
 
@@ -860,12 +875,6 @@ struct modulus
             }
         }
 
-//         void add_search_path (filesystem::path const & dir)
-//         {
-//             if (!dir.empty())
-//                 _searchdirs.push_back(dir);
-//         }
-//
     //    /**
     //     * @brief Output summary of emitters/detectors utilization.
     //     * TODO Implement
@@ -1121,6 +1130,41 @@ struct modulus
             return _module_spec_map.find(modname) != _module_spec_map.end();
         }
 
+        struct timer_callback_helper
+        {
+            typename timer_pool_type::callback_type callback;
+            basic_module * m = nullptr;
+
+            void operator () ()
+            {
+                if (m) {
+                    if (m->use_queued_slots()) {
+                        // Do not std::move callback as it may be periodic
+                        m->callback_queue().push(callback);
+                    } else if (m->is_slave()) {
+                        // Do not std::move callback as it may be periodic
+                        m->master()->callback_queue().push(callback);
+                    } else {
+                        callback();
+                    }
+                } else {
+                    callback();
+                }
+            }
+        };
+
+        inline typename timer_pool_type::timer_id acquire_timer (
+                  basic_module * m
+                , double delay
+                , double period
+                , typename timer_pool_type::callback_type && callback)
+        {
+            timer_callback_helper timer_callback;
+            timer_callback.m = m;
+            timer_callback.callback = std::move(callback);
+            return _ptimer_pool->create(delay, period, std::move(timer_callback));
+        }
+
     public: // slots
         void module_registered (string_type const & pname, bool & result)
         {
@@ -1190,8 +1234,6 @@ struct modulus
 
         void async_print_info (basic_module const * m, string_type const & s)
         {
-//             this->_queue_ptr->template push_method<logger_type, string_type const &>(
-//                     & logger_type::info, _plog, (m != 0 ? m->name() + ": " + s : s));
             this->_queue_ptr->push(& logger_type::info
                     , _plog
                     , (m != 0 ? m->name() + ": " + s : s));
@@ -1240,33 +1282,17 @@ struct modulus
         void (dispatcher::*warn_printer) (basic_module const * m, string_type const & s);
         void (dispatcher::*error_printer) (basic_module const * m, string_type const & s);
 
-        std::atomic_int  _quit_flag;
-//         filesystem::pathlist   _searchdirs;
+        std::atomic_int        _quit_flag;
         api_map_type           _api;
         module_spec_map_type   _module_spec_map;
         runnable_sequence_type _runnable_modules;  // modules run in a separate threads
         basic_module *         _main_module_ptr;
         settings_type *        _psettings = nullptr;
         logger_type *          _plog = nullptr;
+        std::unique_ptr<timer_pool_type> _ptimer_pool;
     }; // class dispatcher
 }; // struct modulus
 
-//
-// template <PFS_MODULUS_TEMPLETE_SIGNATURE>
-// filesystem::pathlist modulus<PFS_MODULUS_TEMPLETE_ARGS>::dispatcher::module_paths () const
-// {
-//     filesystem::pathlist result;
-//
-//     typename module_spec_map_type::const_iterator first = _module_spec_map.cbegin();
-//     typename module_spec_map_type::const_iterator last  = _module_spec_map.cend();
-//
-//     for (; first != last; ++first) {
-//         module_spec modspec = first->second;
-//         result.push_back(modspec.pdl->path());
-//     }
-//
-//     return result;
-// }
 } // namespace pfs
 
 #ifndef MODULUS_EXPORT

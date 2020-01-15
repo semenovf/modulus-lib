@@ -5,8 +5,8 @@
 //
 // This code inspired from:
 //      * https://codereview.stackexchange.com/questions/127552/portable-periodic-one-shot-timer-thread-follow-up
-//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_manager.hxx
-//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_manager.cxx
+//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_pool.hxx
+//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_pool.cxx
 // and adapted to requirements of `modulus` project.
 //
 // Changelog:
@@ -14,6 +14,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <chrono>
 #include <unordered_map>
@@ -33,10 +34,13 @@ template <template <typename, typename> class AssociativeContainer = default_tim
         , typename BasicLockable = std::mutex
         , typename ConditionVariable = std::condition_variable
         , template <typename> class ScopedLocker = std::unique_lock>
-class timer_manager
+class timer_pool
 {
 public: // Public types
     using timer_id = uint32_t;
+
+    // Function object we actually use
+    using callback_type = std::function<void()>;
 
 private: // Private types
     using mutex_type = BasicLockable;
@@ -45,9 +49,6 @@ private: // Private types
     using clock_type = std::chrono::steady_clock;
     using time_point_type = std::chrono::time_point<clock_type>;
     using duration_millis_type = std::chrono::milliseconds;
-
-    // Function object we actually use
-    using callback_type = std::function<void()>;
 
     // Timer
     struct timer_item
@@ -76,11 +77,11 @@ private: // Private types
         timer_item (timer_id tid
                 , time_point_type tnext
                 , duration_millis_type tperiod
-                , callback_type const & func) noexcept
+                , callback_type && func) noexcept
             : id(tid)
             , next(tnext)
             , period(tperiod)
-            , callback(func)
+            , callback(std::move(func))
         {}
 
         timer_item (timer_item const &) = delete;
@@ -108,7 +109,7 @@ private: // Private members
     // Lazily started when first timer is started
     // TODO: Implement auto-stopping the timer thread when it is idle for
     // a configurable period.
-    mutable mutex_type _sync; // TODO rename to _mtx
+    mutable mutex_type _mtx;
     std::thread _worker;
 
     // Inexhaustible source of unique IDs
@@ -122,22 +123,22 @@ private: // Private members
 
     condition_variable_type _wakeup_cv;
 
-    bool _done = false;
+    std::atomic_bool _done{false};
 
     // Valid IDs are guaranteed not to be this value
     static timer_id constexpr no_timer = timer_id{0};
 
 public:
     // Constructor does not start worker until there is a Timer.
-    timer_manager () : _next_id(no_timer + 1)
+    timer_pool () : _next_id(no_timer + 1)
     {}
 
     // Destructor is thread safe, even if a timer callback is running.
     // All callbacks are guaranteed to have returned before this
     // destructor returns.
-    ~timer_manager ()
+    ~timer_pool ()
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
 
         // The worker might not be running
         if (_worker.joinable()) {
@@ -167,13 +168,13 @@ public:
     */
     timer_id create (double delay
             , double period
-            , callback_type const & func)
+            , callback_type && func)
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
 
         // Lazily start thread when first timer is requested
         if (!_worker.joinable())
-            _worker = std::thread(& timer_manager::timerThreadWorker, this);
+            _worker = std::thread(& timer_pool::worker, this);
 
         // Assign an ID and insert it into function storage
         auto id = _next_id++;
@@ -187,7 +188,7 @@ public:
                 , timer_item(id
                         , clock_type::now() + delay_millis
                         , period_millis
-                        , func ));
+                        , std::forward<callback_type>(func)));
 
         // Insert a reference to the Timer into ordering queue
         typename timer_queue::iterator place = _queue.emplace(iter.first->second);
@@ -220,7 +221,7 @@ public:
     */
     bool destroy (timer_id id)
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
         auto it = _active.find(id);
         return destroy_impl(locker, it, true);
     }
@@ -232,7 +233,7 @@ public:
     */
     void destroy_all ()
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
 
         while (!_active.empty())
             destroy_impl(locker, _active.begin(), _queue.size() == 1);
@@ -240,21 +241,20 @@ public:
 
     std::size_t size () const noexcept
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
         return _active.size();
     }
 
     bool empty () const noexcept
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
         return _active.empty();
     }
 
 private:
-
-    void timerThreadWorker ()
+    void worker ()
     {
-        locker_type locker(_sync);
+        locker_type locker(_mtx);
 
         while (!_done) {
             if (_queue.empty()) {
@@ -330,7 +330,7 @@ private:
 
             // Block until the callback is finished
             if (std::this_thread::get_id() != _worker.get_id())
-            timer.wait_cv->wait(locker);
+                timer.wait_cv->wait(locker);
         } else {
             _queue.erase(timer);
             _active.erase(it);

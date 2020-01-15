@@ -12,9 +12,9 @@
 #include <atomic>
 
 TEST_CASE("Basic timer") {
-    using timer_manager = pfs::timer_manager<>;
+    using timer_pool = pfs::timer_pool<>;
 
-    timer_manager tm;
+    timer_pool tm;
     std::atomic_int t0{0};
     std::atomic_int t1{0};
     std::atomic_int t2{0};

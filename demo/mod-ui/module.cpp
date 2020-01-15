@@ -8,6 +8,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 #include "module.hpp"
 #include "api.hpp"
+#include <iostream>
 
 extern "C" {
 
@@ -55,6 +56,14 @@ int module::run ()
 {
     log_debug("run()");
     emitUiReady();
+
+    acquire_timer(5, 1, [this] {
+        this->log_debug("One-second periodic timer fired");
+    });
+
+    acquire_timer(2, 0, [] {
+        std::cout << "One-shot Timer fired\n";
+    });
 
     while (! is_quit()) {
         // FIXME Use condition_variable to wait until callback queue will not be empty.
