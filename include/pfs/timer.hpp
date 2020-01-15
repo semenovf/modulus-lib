@@ -5,8 +5,8 @@
 //
 // This code inspired from:
 //      * https://codereview.stackexchange.com/questions/127552/portable-periodic-one-shot-timer-thread-follow-up
-//      * https://github.com/stella-emu/stella/blob/master/src/common/TimerManager.hxx
-//      * https://github.com/stella-emu/stella/blob/master/src/common/TimerManager.cxx
+//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_manager.hxx
+//      * https://github.com/stella-emu/stella/blob/master/src/common/timer_manager.cxx
 // and adapted to requirements of `modulus` project.
 //
 // Changelog:
@@ -22,6 +22,9 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <cassert>
+
+namespace pfs {
 
 template <typename KeyType, typename ValueType>
 using default_timer_associative_container = std::unordered_map<KeyType, ValueType>;
@@ -30,7 +33,7 @@ template <template <typename, typename> class AssociativeContainer = default_tim
         , typename BasicLockable = std::mutex
         , typename ConditionVariable = std::condition_variable
         , template <typename> class ScopedLocker = std::unique_lock>
-class TimerManager
+class timer_manager
 {
 public: // Public types
     using timer_id = uint32_t;
@@ -126,13 +129,13 @@ private: // Private members
 
 public:
     // Constructor does not start worker until there is a Timer.
-    TimerManager () : _next_id(no_timer + 1)
+    timer_manager () : _next_id(no_timer + 1)
     {}
 
     // Destructor is thread safe, even if a timer callback is running.
     // All callbacks are guaranteed to have returned before this
     // destructor returns.
-    ~TimerManager ()
+    ~timer_manager ()
     {
         locker_type locker(_sync);
 
@@ -162,7 +165,7 @@ public:
 
       @return  Id used to identify the timer for later use
     */
-    timer_id create_timer (double delay
+    timer_id create (double delay
             , double period
             , callback_type const & func)
     {
@@ -170,14 +173,21 @@ public:
 
         // Lazily start thread when first timer is requested
         if (!_worker.joinable())
-            _worker = std::thread(& TimerManager::timerThreadWorker, this);
+            _worker = std::thread(& timer_manager::timerThreadWorker, this);
 
         // Assign an ID and insert it into function storage
         auto id = _next_id++;
+
+        assert(delay * 1000 <= std::numeric_limits<intmax_t>::max());
+        assert(period * 1000 <= std::numeric_limits<intmax_t>::max());
+        auto delay_millis = duration_millis_type(static_cast<intmax_t>(delay * 1000));
+        auto period_millis = duration_millis_type(static_cast<intmax_t>(period * 1000));
+
         auto iter = _active.emplace(id
                 , timer_item(id
-                        , clock_type::now() + duration_millis_type(delay * 1000)
-                        , duration_millis_type(period * 1000), func ));
+                        , clock_type::now() + delay_millis
+                        , period_millis
+                        , func ));
 
         // Insert a reference to the Timer into ordering queue
         typename timer_queue::iterator place = _queue.emplace(iter.first->second);
@@ -208,7 +218,7 @@ public:
       has a repetition period, or you want to cancel a timeout that has
       not fired yet.
     */
-    bool destroy_timer (timer_id id)
+    bool destroy (timer_id id)
     {
         locker_type locker(_sync);
         auto it = _active.find(id);
@@ -334,3 +344,5 @@ private:
         return true;
     }
 };
+
+} // namespace pfs
