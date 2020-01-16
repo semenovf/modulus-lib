@@ -276,7 +276,7 @@ struct modulus
     using module_spec_map_type = AssociativeContainer<string_type, module_spec>;
     using thread_function = int (basic_module::*)();
     using runnable_sequence_type = SequenceContainer<std::pair<basic_module *, thread_function>>;
-    using thread_sequence_type = SequenceContainer<std::shared_ptr<std::thread>>;
+    using thread_sequence_type = SequenceContainer<std::unique_ptr<std::thread>>;
 
 ////////////////////////////////////////////////////////////////////////////////
 // basic_module
@@ -788,7 +788,7 @@ struct modulus
 
                 // Run module if it is not a master
                 if (m != _main_module_ptr)
-                    thread_pool.push_back(std::make_shared<std::thread>(tfunc, m));
+                    thread_pool.emplace_back(new std::thread(tfunc, m));
                 else
                     master_thread_function = tfunc;
             }
@@ -806,11 +806,9 @@ struct modulus
                 this->run();
             }
 
-            auto ithread      = thread_pool.begin();
-            auto ithread_last = thread_pool.end();
-
-            for (; ithread != ithread_last; ++ithread) {
-                (*ithread)->join();
+            for (auto & pth: thread_pool) {
+                if (pth->joinable())
+                    pth->join();
             }
 
             _ptimer_pool.reset(nullptr);
