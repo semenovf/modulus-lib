@@ -326,6 +326,10 @@ struct modulus
             _pdispatcher->log_error(this, s);
         }
 
+        /**
+         * Acquire timer with callback processed from module's queue
+         * or called direct if @a m is @c nullptr.
+         */
         typename timer_pool_type::timer_id acquire_timer (double delay
                 , double period
                 , typename timer_pool_type::callback_type && callback)
@@ -333,6 +337,17 @@ struct modulus
             return _pdispatcher->acquire_timer(this
                     , delay
                     , period
+                    , std::forward<typename timer_pool_type::callback_type>(callback));
+        }
+
+        /**
+         * Acquire timer with callback processed from dispatcher queue
+         */
+        typename timer_pool_type::timer_id acquire_timer_dispatcher (double delay
+                , double period
+                , typename timer_pool_type::callback_type && callback)
+        {
+            return _pdispatcher->acquire_timer(delay, period
                     , std::forward<typename timer_pool_type::callback_type>(callback));
         }
 
@@ -1132,6 +1147,7 @@ struct modulus
         {
             typename timer_pool_type::callback_type callback;
             basic_module * m = nullptr;
+            dispatcher * d = nullptr;
 
             void operator () ()
             {
@@ -1145,12 +1161,18 @@ struct modulus
                     } else {
                         callback();
                     }
+                } else if (d) {
+                    d->callback_queue().push(callback);
                 } else {
                     callback();
                 }
             }
         };
 
+        /**
+         * Acquire timer with callback processed from module's queue
+         * or called direct if @a m is @c nullptr.
+         */
         inline typename timer_pool_type::timer_id acquire_timer (
                   basic_module * m
                 , double delay
@@ -1159,6 +1181,20 @@ struct modulus
         {
             timer_callback_helper timer_callback;
             timer_callback.m = m;
+            timer_callback.callback = std::move(callback);
+            return _ptimer_pool->create(delay, period, std::move(timer_callback));
+        }
+
+        /**
+         * Acquire timer with callback processed from dispatcher queue
+         */
+        inline typename timer_pool_type::timer_id acquire_timer (
+                  double delay
+                , double period
+                , typename timer_pool_type::callback_type && callback)
+        {
+            timer_callback_helper timer_callback;
+            timer_callback.d = this;
             timer_callback.callback = std::move(callback);
             return _ptimer_pool->create(delay, period, std::move(timer_callback));
         }
