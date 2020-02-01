@@ -197,6 +197,7 @@ struct modulus
     using logger_type = LoggerType;
     using string_type = StringType;
     using timer_pool_type = TimerPool;
+    using timer_id = typename timer_pool_type::timer_id;
 
     using callback_queue_type = active_queue<QueueContainer
         , BasicLockable
@@ -330,7 +331,7 @@ struct modulus
          * Acquire timer with callback processed from module's queue
          * or called direct if @a m is @c nullptr.
          */
-        typename timer_pool_type::timer_id acquire_timer (double delay
+        timer_id acquire_timer (double delay
                 , double period
                 , typename timer_pool_type::callback_type && callback)
         {
@@ -343,12 +344,17 @@ struct modulus
         /**
          * Acquire timer with callback processed from dispatcher queue
          */
-        typename timer_pool_type::timer_id acquire_timer_dispatcher (double delay
+        timer_id acquire_timer_dispatcher (double delay
                 , double period
                 , typename timer_pool_type::callback_type && callback)
         {
             return _pdispatcher->acquire_timer(delay, period
                     , std::forward<typename timer_pool_type::callback_type>(callback));
+        }
+
+        inline void destroy_timer (timer_id id)
+        {
+            _pdispatcher->destroy_timer(id);
         }
 
     protected:
@@ -1173,7 +1179,7 @@ struct modulus
          * Acquire timer with callback processed from module's queue
          * or called direct if @a m is @c nullptr.
          */
-        inline typename timer_pool_type::timer_id acquire_timer (
+        inline timer_id acquire_timer (
                   basic_module * m
                 , double delay
                 , double period
@@ -1188,7 +1194,7 @@ struct modulus
         /**
          * Acquire timer with callback processed from dispatcher queue
          */
-        inline typename timer_pool_type::timer_id acquire_timer (
+        inline timer_id acquire_timer (
                   double delay
                 , double period
                 , typename timer_pool_type::callback_type && callback)
@@ -1197,6 +1203,11 @@ struct modulus
             timer_callback.d = this;
             timer_callback.callback = std::move(callback);
             return _ptimer_pool->create(delay, period, std::move(timer_callback));
+        }
+
+        inline void destroy_timer (timer_id id)
+        {
+            _ptimer_pool->destroy(id);
         }
 
     public: // slots
