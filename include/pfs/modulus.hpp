@@ -730,6 +730,9 @@ struct modulus
 
         void finalize ()
         {
+            // Destroy timer pool
+            _ptimer_pool.reset(nullptr);
+
             this->_queue_ptr->call_all();
 
             info_printer  = & dispatcher::sync_print_info;
@@ -791,7 +794,6 @@ struct modulus
         int exec_main ()
         {
             int r = exit_status::success;
-            _ptimer_pool.reset(new timer_pool_type);
 
             thread_sequence_type thread_pool;
 
@@ -832,7 +834,6 @@ struct modulus
                     pth->join();
             }
 
-            _ptimer_pool.reset(nullptr);
             return r;
         }
 
@@ -854,6 +855,10 @@ struct modulus
             , _plog(& logger)
         {
             assert(_plog);
+
+            // Initialize timer pool
+            _ptimer_pool.reset(new timer_pool_type);
+
             register_api(mapper, n);
         }
 
