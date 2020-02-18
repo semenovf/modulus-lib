@@ -275,7 +275,7 @@ struct modulus
 
     using api_map_type = AssociativeContainer<int, api_item_type *>;
     using module_spec_map_type = AssociativeContainer<string_type, module_spec>;
-    using thread_function = int (basic_module::*)();
+    using thread_function = int (basic_module::*)(settings_type const &);
     using runnable_sequence_type = SequenceContainer<std::pair<basic_module *, thread_function>>;
     using thread_sequence_type = SequenceContainer<std::unique_ptr<std::thread>>;
 
@@ -436,6 +436,27 @@ struct modulus
         {
             return true;
         }
+
+        bool on_start_wrapper (settings_type const & settings)
+        {
+            _started = this->on_start(settings);
+
+            if (! _started) {
+                _pdispatcher->log_error(concat(_name
+                        , string_type(": failed to start module")));
+            }
+
+            return _started;
+        }
+
+        bool on_finish_wrapper ()
+        {
+            if (! this->on_finish()) {
+                _pdispatcher->log_warn(concat(_name
+                        , string_type(": failed to finalize module")));
+            }
+        }
+
     };// basic_module
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -466,6 +487,10 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     class async_module : public basic_module
     {
+        using slaves_sequence_type = SequenceContainer<basic_module *>;
+
+        slaves_sequence_type _slaves;
+
     public:
         async_module () : basic_module()
         {
@@ -509,9 +534,44 @@ struct modulus
             return !this->callback_queue().empty();
         }
 
-        int thread_function_helper ()
+        int thread_function_wrapper (settings_type const & settings)
         {
-            return run();
+            int rc = dispatcher::exit_status::failure;
+            bool ok = true;
+
+            if (!this->on_start_wrapper(settings))
+                ok = false;
+
+            // Launch on_start() methods for slaves
+            if (ok) {
+                for (auto slave: _slaves) {
+                    if (!slave->on_start_wrapper(settings)) {
+                        ok = false;
+                    }
+                }
+            }
+
+            if (!ok) {
+                this->quit();
+                return dispatcher::exit_status::failure;
+            }
+
+            rc = run();
+
+            for (auto slave: _slaves) {
+                if (!slave->on_finish_wrapper()) {
+                    ok = false;
+                }
+            }
+
+            this->on_finish_wrapper();
+
+            return rc;
+        }
+
+        void add_slave (basic_module * m)
+        {
+            _slaves.push_back(m);
         }
 
         virtual int run () = 0;
@@ -546,6 +606,7 @@ struct modulus
         void set_master (async_module * master)
         {
             _master = master;
+            master->add_slave(this);
         }
     };
 
@@ -703,13 +764,12 @@ struct modulus
                     ok = false;
                 }
 
-                if (ok) {
-                    if (! pmodule->on_start(*_psettings)) {
-                        log_error(concat(pmodule->name(), string_type(": failed to start module")));
+                // Launch on_start() methods for non-async and non-slave modules
+                // Async and slave modules started at async module's thread
+                // function
+                if (ok && ! pmodule->is_slave() && ! pmodule->use_queued_slots()) {
+                    if (! pmodule->on_start_wrapper(*_psettings)) {
                         ok = false;
-                        pmodule->_started = false;
-                    } else {
-                        pmodule->_started = true;
                     }
                 }
             }
@@ -746,7 +806,12 @@ struct modulus
                 for (; imodule != imodule_last; ++imodule) {
                     module_spec & modspec = imodule->second;
 
-                    if (modspec.pmodule->is_started()) {
+                    // Launch on_finish() methods for non-async and non-slave
+                    // modules. Async and slave modules finalized at async
+                    // module's thread function
+                    if (modspec.pmodule->is_started()
+                            && ! modspec.pmodule->is_slave()
+                            && ! modspec.pmodule->use_queued_slots()) {
                         // Do not 'Call deferred callbacks in modules'
                         // to avoid segmentation fault when signal handlers depends on varibales
                         // which lifetime limited by run() method
@@ -755,7 +820,7 @@ struct modulus
         //                 if (modspec.pmodule->use_queued_slots())
         //                     static_cast<async_module *>(modspec.pmodule.get())->call_all();
 
-                        modspec.pmodule->on_finish();
+                        modspec.pmodule->on_finish_wrapper();
                     }
                 }
 
@@ -796,21 +861,21 @@ struct modulus
 
             thread_sequence_type thread_pool;
 
-            auto irunnable      = _runnable_modules.begin();
-            auto irunnable_last = _runnable_modules.end();
+            auto runnable_it   = _runnable_modules.begin();
+            auto runnable_last = _runnable_modules.end();
 
             thread_function master_thread_function = 0;
 
-            for (; irunnable != irunnable_last; ++irunnable) {
-                basic_module * m = irunnable->first;
-                thread_function tfunc = irunnable->second;
+            for (; runnable_it != runnable_last; ++runnable_it) {
+                basic_module * m = runnable_it->first;
+                thread_function tfunc = runnable_it->second;
 
                 // Handle deferred calls after start stage and before thread method call (run()).
                 m->_queue_ptr->call_all();
 
                 // Run module if it is not a master
                 if (m != _main_module_ptr)
-                    thread_pool.emplace_back(new std::thread(tfunc, m));
+                    thread_pool.emplace_back(new std::thread(tfunc, m, *_psettings));
                 else
                     master_thread_function = tfunc;
             }
@@ -821,7 +886,7 @@ struct modulus
                 std::thread dthread(& dispatcher::run, this);
 
                 // And call master function
-                r = (_main_module_ptr->*master_thread_function)();
+                r = (_main_module_ptr->*master_thread_function)(*_psettings);
 
                 dthread.join();
             } else {
@@ -926,7 +991,7 @@ struct modulus
             if (pmodule->use_queued_slots()) {
                 this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
                         , static_cast<typename async_module::thread_function>(
-                                & async_module::thread_function_helper)));
+                                & async_module::thread_function_wrapper)));
             } else {
                 if (pmodule->is_slave()) {
                     if (dep_module_name == "") {
@@ -1068,7 +1133,7 @@ struct modulus
 //             if (modspec.pmodule->use_queued_slots()) {
 //                 this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
 //                         , static_cast<typename async_module::thread_function>(
-//                                 & async_module::thread_function_helper)));
+//                                 & async_module::thread_function_wrapper)));
 //             }
 
             return modspec;
