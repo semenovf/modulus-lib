@@ -328,8 +328,7 @@ struct modulus
         }
 
         /**
-         * Acquire timer with callback processed from module's queue
-         * or called direct if @a m is @c nullptr.
+         * Acquire timer with callback processed from module's queue.
          */
         timer_id acquire_timer (double delay
                 , double period
@@ -1345,23 +1344,8 @@ struct modulus
 
 } // namespace pfs
 
-#ifndef MODULUS_EXPORT
-#   if defined(_WIN32) || defined(_WIN64)
-#       if MODULUS_EXPORTS
-#           define MODULUS_API __declspec(dllexport)
-#       else
-#           define MODULUS_API __declspec(dllimport)
-#       endif
-#   else
-#       define MODULUS_EXPORT
-#   endif
-#endif
-
-// #define PFS_EMITTER_CAST(e)     reinterpret_cast<void *>(& e)
-// #define PFS_DETECTOR_CAST(slot) reinterpret_cast<detector_handler>(& slot)
-
-#define MODULUS_EMITTER(id, em) { id , reinterpret_cast<void *>(& em) } //PFS_EMITTER_CAST(em) }
-#define MODULUS_DETECTOR(id, dt) { id , reinterpret_cast<detector_handler>(& dt) } // PFS_DETECTOR_CAST(dt) }
+#define MODULUS_EMITTER(id, em) { id , reinterpret_cast<void *>(& em) }
+#define MODULUS_DETECTOR(id, dt) { id , reinterpret_cast<detector_handler>(& dt) }
 
 #define MODULUS_DECL_EMITTERS                                                  \
     virtual emitter_mapper_pair const *                                        \
