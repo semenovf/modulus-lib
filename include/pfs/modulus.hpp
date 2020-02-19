@@ -559,15 +559,13 @@ struct modulus
             }
 
             // 3. Notify dispatcher about starting stage finished
-            // (the result is no matter).
-            auto sync_data = this->_pdispatcher->notify_starting_finished();
+            // for this module (the result is no matter).
+            this->_pdispatcher->notify_module_started();
 
-            // 4. Wait notification from dispatcher till all modules
-            // finished starting stage.
-            std::unique_lock<mutex_type> lk(*sync_data.first);
-            sync_data.second->wait(lk, [this] {
-                return this->_pdispatcher->starting_finished();
-            });
+            // 4. Wait special condition (all modules finished starting stage)
+            // from dispatcher.
+            while (!this->_pdispatcher->all_modules_started())
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
 
             if (!ok) {
                 this->quit();
@@ -914,6 +912,7 @@ struct modulus
                 r = (_main_module_ptr->*master_thread_function)(*_psettings);
 
                 dthread.join();
+
             } else {
                 this->run();
             }
@@ -1269,16 +1268,14 @@ struct modulus
             }
         };
 
-        std::pair<mutex_type *, condition_variable_type *>
-        notify_starting_finished ()
+        void notify_module_started ()
         {
-            ++_starting_finished_counter;
-            return std::make_pair(& _starting_mutex, & _starting_cv);
+            ++_modules_started_counter;
         }
 
-        bool starting_finished () const
+        bool all_modules_started () const
         {
-            _starting_finished_counter.load() == _runnable_modules.size();
+            return _modules_started_counter == _runnable_modules.size();
         }
 
         /**
@@ -1434,9 +1431,9 @@ struct modulus
         void (dispatcher::*error_printer) (basic_module const * m, string_type const & s);
 
         std::atomic_int         _quit_flag;
-        std::atomic_int         _starting_finished_counter {0};
-        mutex_type              _starting_mutex;
-        condition_variable_type _starting_cv;
+        std::atomic_int         _modules_started_counter {0};
+//         mutex_type              _starting_mutex;
+//         condition_variable_type _starting_cv;
         api_map_type            _api;
         module_spec_map_type    _module_spec_map;
         runnable_sequence_type  _runnable_modules;  // modules run in a separate threads

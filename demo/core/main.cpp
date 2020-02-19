@@ -34,10 +34,12 @@ int main (int argc, char * argv[])
     pdisp->set_quit_handler(quit_app);
 
     std::vector<std::pair<std::string,std::string>> modules{
-          { "mod-db", "" }
-        , { "mod-link", "" }
-        , { "mod-ui", "" }
-        , { "mod-ui-dialog", "mod-ui" }
+          { "mod-db"         , "" }
+        , { "mod-link"       , "" }
+        , { "mod-ui"         , "" }
+        , { "mod-ui-dialog"  , "mod-ui" }
+        , { "mod-async"      , "" }
+        , { "mod-async-other", "" }
     };
 
     auto ready = std::all_of(modules.cbegin(), modules.cend()

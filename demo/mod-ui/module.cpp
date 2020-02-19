@@ -77,4 +77,4 @@ int module::run ()
     return 0;
 }
 
-}} // namespace mod::link
+}} // namespace mod::ui
