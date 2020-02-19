@@ -15,6 +15,7 @@
 #include "pfs/dynamic_library.hpp"
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <list>
 #include <map>
@@ -157,6 +158,9 @@ using default_sequence_container = std::list<T>;
 template <typename T>
 using default_queue_container = std::deque<T>;
 
+using default_basic_lockable = std::mutex;
+using default_condition_variable = std::condition_variable;
+
 using default_timer_pool = timer_pool<>;
 
 struct default_settings {};
@@ -184,7 +188,8 @@ template <typename LoggerType = simple_logger
         , template <typename> class QueueContainer = default_queue_container
 
         // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
-        , typename BasicLockable = std::mutex
+        , typename BasicLockable = default_basic_lockable
+        , typename ConditionVariable = default_condition_variable
         , int GcThreshold = 256>
 struct modulus
 {
@@ -198,7 +203,8 @@ struct modulus
     using string_type = StringType;
     using timer_pool_type = TimerPool;
     using timer_id = typename timer_pool_type::timer_id;
-
+    using mutex_type = BasicLockable;
+    using condition_variable_type = ConditionVariable;
     using callback_queue_type = active_queue<QueueContainer
         , BasicLockable
         , GcThreshold>;
@@ -539,10 +545,11 @@ struct modulus
             int rc = dispatcher::exit_status::failure;
             bool ok = true;
 
+            // 1. Launch on_start() method for async module.
             if (!this->on_start_wrapper(settings))
                 ok = false;
 
-            // Launch on_start() methods for slaves
+            // 2. Launch on_start() methods for slave modules.
             if (ok) {
                 for (auto slave: _slaves) {
                     if (!slave->on_start_wrapper(settings)) {
@@ -551,10 +558,28 @@ struct modulus
                 }
             }
 
+            // 3. Notify dispatcher about starting stage finished
+            // (the result is no matter).
+            auto sync_data = this->_pdispatcher->notify_starting_finished();
+
+            // 4. Wait notification from dispatcher till all modules
+            // finished starting stage.
+            std::unique_lock<mutex_type> lk(*sync_data.first);
+            sync_data.second->wait(lk, [this] {
+                return this->_pdispatcher->starting_finished();
+            });
+
             if (!ok) {
                 this->quit();
                 return dispatcher::exit_status::failure;
             }
+
+            // 5. If OK process deferred (queued events/callbacks) and for
+            // receiving quit() if starting failure.
+            process_events();
+
+            if (this->is_quit())
+                return dispatcher::exit_status::failure;
 
             rc = run();
 
@@ -1244,6 +1269,18 @@ struct modulus
             }
         };
 
+        std::pair<mutex_type *, condition_variable_type *>
+        notify_starting_finished ()
+        {
+            ++_starting_finished_counter;
+            return std::make_pair(& _starting_mutex, & _starting_cv);
+        }
+
+        bool starting_finished () const
+        {
+            _starting_finished_counter.load() == _runnable_modules.size();
+        }
+
         /**
          * Acquire timer with callback processed from module's queue
          * or called direct if @a m is @c nullptr.
@@ -1396,13 +1433,16 @@ struct modulus
         void (dispatcher::*warn_printer) (basic_module const * m, string_type const & s);
         void (dispatcher::*error_printer) (basic_module const * m, string_type const & s);
 
-        std::atomic_int        _quit_flag;
-        api_map_type           _api;
-        module_spec_map_type   _module_spec_map;
-        runnable_sequence_type _runnable_modules;  // modules run in a separate threads
-        basic_module *         _main_module_ptr;
-        settings_type *        _psettings = nullptr;
-        logger_type *          _plog = nullptr;
+        std::atomic_int         _quit_flag;
+        std::atomic_int         _starting_finished_counter {0};
+        mutex_type              _starting_mutex;
+        condition_variable_type _starting_cv;
+        api_map_type            _api;
+        module_spec_map_type    _module_spec_map;
+        runnable_sequence_type  _runnable_modules;  // modules run in a separate threads
+        basic_module *          _main_module_ptr;
+        settings_type *         _psettings {nullptr};
+        logger_type *           _plog {nullptr};
         std::unique_ptr<timer_pool_type> _ptimer_pool;
     }; // class dispatcher
 }; // struct modulus
