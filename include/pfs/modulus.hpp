@@ -862,7 +862,6 @@ struct modulus
             auto pqueue = & this->callback_queue();
 
             while (! _quit_flag) {
-                // TODO Use condition_variable to wait until _callback_queue will not be empty.
                 if (pqueue->empty()) {
                     std::this_thread::sleep_for(std::chrono::microseconds(100));
                     continue;
@@ -893,9 +892,6 @@ struct modulus
                 basic_module * m = runnable_it->first;
                 thread_function tfunc = runnable_it->second;
 
-                // Handle deferred calls after start stage and before thread method call (run()).
-                m->_queue_ptr->call_all();
-
                 // Run module if it is not a master
                 if (m != _main_module_ptr)
                     thread_pool.emplace_back(new std::thread(tfunc, m, *_psettings));
@@ -912,7 +908,6 @@ struct modulus
                 r = (_main_module_ptr->*master_thread_function)(*_psettings);
 
                 dthread.join();
-
             } else {
                 this->run();
             }

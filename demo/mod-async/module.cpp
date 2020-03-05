@@ -45,7 +45,7 @@ bool module::on_start (modulus::settings_type const &)
 {
     std::puts("+++ mod-async +++");
     log_debug("on_start()");
-    emitOnStartTest();
+//     emitOnStartTest();
     _printer.reset(new Printer);
     return true;
 }
