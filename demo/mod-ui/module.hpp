@@ -8,12 +8,16 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "modulus.hpp"
+#include "Printer.hpp"
+#include <memory>
 
 namespace mod {
 namespace ui {
 
 class module : public modulus::async_module
 {
+    std::unique_ptr<Printer> _printer;
+
 public:
     MODULUS_DECL_EMITTERS
     MODULUS_DECL_DETECTORS
@@ -25,6 +29,8 @@ private:
     virtual int run () override;
 
     modulus::sigslot_ns::signal<> emitUiReady;
+    modulus::sigslot_ns::signal<> emitOnStartTest;
+    void onStartTest ();
 };
 
 }} // namespace mod::ui

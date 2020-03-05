@@ -7,6 +7,7 @@
 //      2020.01.05 Initial version.
 ////////////////////////////////////////////////////////////////////////////////
 #include "module.hpp"
+#include "api.hpp"
 
 extern "C" {
 
@@ -26,9 +27,11 @@ namespace mod {
 namespace db {
 
 MODULUS_BEGIN_EMITTERS(module)
+    MODULUS_EMITTER(API_ON_START_TEST, emitOnStartTest)
 MODULUS_END_EMITTERS
 
 MODULUS_BEGIN_DETECTORS(module)
+    MODULUS_DETECTOR(API_ON_START_TEST, module::onStartTest)
 MODULUS_END_DETECTORS
 
 bool module::on_loaded ()
@@ -39,14 +42,27 @@ bool module::on_loaded ()
 
 bool module::on_start (modulus::settings_type const &)
 {
+    std::puts("+++ mod-db +++");
     log_debug("on_start()");
+    emitOnStartTest();
+    _printer.reset(new Printer);
     return true;
 }
 
 bool module::on_finish ()
 {
     log_debug("on_finish()");
+    _printer.reset(nullptr);
     return true;
+}
+
+void module::onStartTest ()
+{
+    if (_printer) {
+        _printer->print("*** On start test ***");
+    } else {
+        log_error("printer is NULL");
+    }
 }
 
 }} // namespace mod::db

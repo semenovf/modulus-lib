@@ -9,5 +9,6 @@
 #pragma once
 
 enum {
-    API_UI_READY
+      API_UI_READY
+    , API_ON_START_TEST
 };

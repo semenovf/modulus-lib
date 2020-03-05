@@ -1012,6 +1012,9 @@ struct modulus
             auto const & module_name = name.first;
             auto const & dep_module_name = name.second;
 
+            pmodule->set_dispatcher(this);
+            pmodule->set_name(module_name);
+
             if (pmodule->use_queued_slots()) {
                 this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
                         , static_cast<typename async_module::thread_function>(
@@ -1045,9 +1048,6 @@ struct modulus
                 log_error(concat(pmodule->name(), string_type(": module already registered")));
                 return false;
             }
-
-            pmodule->set_dispatcher(this);
-            pmodule->set_name(module_name);
 
             if (!pmodule->on_loaded()) {
                 log_error(concat(pmodule->name(), string_type(": on_loaded stage failed")));

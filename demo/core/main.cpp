@@ -23,6 +23,11 @@ static modulus::api_item_type API[] = {
     { API_UI_READY
         , modulus::make_mapper()
         , "User Interface loaded and ready to process user activity"}
+
+    , { API_ON_START_TEST
+        , modulus::make_mapper()
+        , "Test on start method"
+    }
 };
 
 int main (int argc, char * argv[])

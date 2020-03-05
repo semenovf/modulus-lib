@@ -8,12 +8,16 @@
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "modulus.hpp"
+#include "Printer.hpp"
+#include <memory>
 
 namespace mod {
 namespace db {
 
 class module : public modulus::module
 {
+    std::unique_ptr<Printer> _printer;
+
 public:
     MODULUS_DECL_EMITTERS
     MODULUS_DECL_DETECTORS
@@ -22,6 +26,9 @@ private:
     virtual bool on_loaded () override;
     virtual bool on_start (modulus::settings_type const &) override;
     virtual bool on_finish () override;
+
+    modulus::sigslot_ns::signal<> emitOnStartTest;
+    void onStartTest ();
 };
 
 }} // namespace mod::db

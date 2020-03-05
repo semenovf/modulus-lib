@@ -4,7 +4,7 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.23 Initial version.
+//      2020.02.19 Initial version
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "modulus.hpp"
@@ -12,9 +12,10 @@
 #include <memory>
 
 namespace mod {
-namespace link {
+namespace async {
+namespace other {
 
-class module : public modulus::module
+class module : public modulus::async_module
 {
     std::unique_ptr<Printer> _printer;
 
@@ -26,9 +27,10 @@ private:
     virtual bool on_loaded () override;
     virtual bool on_start (modulus::settings_type const &) override;
     virtual bool on_finish () override;
+    virtual int run () override;
 
     modulus::sigslot_ns::signal<> emitOnStartTest;
     void onStartTest ();
 };
 
-}} // namespace mod::link
+}}} // namespace mod::async::other

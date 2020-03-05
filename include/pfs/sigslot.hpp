@@ -287,8 +287,8 @@ struct sigslot
     {
     public:
         connection ()
-            : _pobject(0)
-            , _pmemfun(0)
+            : _pobject(nullptr)
+            , _pmemfun(nullptr)
         {}
 
         connection (SlotHolderClass * pobject, void (SlotHolderClass::*pmemfun)(Args...))
@@ -329,7 +329,7 @@ struct sigslot
         }
 
     private:
-        SlotHolderClass * _pobject;
+        SlotHolderClass * _pobject {nullptr};
         void (SlotHolderClass::* _pmemfun)(Args...);
     };
 
