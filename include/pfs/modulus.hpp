@@ -472,6 +472,8 @@ struct modulus
     {
         friend class dispatcher;
 
+        bool _slave {true}; // only for start stage
+
     protected:
         module () noexcept : basic_module()
         {}
@@ -484,7 +486,17 @@ struct modulus
 
         virtual bool is_slave () const final
         {
-            return false;
+            return _slave;
+        }
+
+        virtual typename sigslot_ns::basic_slot_holder * master () const
+        {
+            return this->_pdispatcher;
+        }
+
+        void reset_slave ()
+        {
+            _slave = false;
         }
     };
 
@@ -782,7 +794,7 @@ struct modulus
                 module_spec modspec = first->second;
                 std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
-                if (pmodule->is_slave() && pmodule->master() == 0) {
+                if (pmodule->is_slave() && pmodule->master() == nullptr) {
                     log_error(concat(pmodule->name(), string_type(": module is slave but has no master")));
                     ok = false;
                 }
@@ -790,10 +802,13 @@ struct modulus
                 // Launch on_start() methods for non-async and non-slave modules
                 // Async and slave modules started at async module's thread
                 // function
-                if (ok && ! pmodule->is_slave() && ! pmodule->use_queued_slots()) {
+                //if (ok && ! pmodule->is_slave() && ! pmodule->use_queued_slots()) {
+                if (ok && pmodule->is_slave() && ! pmodule->use_queued_slots()) {
                     if (! pmodule->on_start_wrapper(*_psettings)) {
                         ok = false;
                     }
+
+                    std::static_pointer_cast<module>(pmodule)->reset_slave();
                 }
             }
 
@@ -1016,26 +1031,28 @@ struct modulus
                                 & async_module::thread_function_wrapper)));
             } else {
                 if (pmodule->is_slave()) {
-                    if (dep_module_name == "") {
+                    if (dep_module_name == "" && pmodule->master() != this) {
                         log_error(concat(module_name
                                 , string_type(": master module must be specified for slave")));
                         return false;
                     }
 
-                    basic_module * master = this->find_registered_module(dep_module_name);
+                    if (pmodule->master() != this) {
+                        basic_module * master = this->find_registered_module(dep_module_name);
 
-                    if (!master) {
-                        log_error(concat(dep_module_name, string_type(": module not found")));
-                        return false;
+                        if (!master) {
+                            log_error(concat(dep_module_name, string_type(": module not found")));
+                            return false;
+                        }
+
+                        if (!master->use_queued_slots()) {
+                            log_error(concat(dep_module_name, string_type(": module must be asynchronous")));
+                            return false;
+                        }
+
+                        std::static_pointer_cast<slave_module>(modspec.pmodule)
+                                ->set_master(static_cast<async_module *>(master));
                     }
-
-                    if (!master->use_queued_slots()) {
-                        log_error(concat(dep_module_name, string_type(": module must be asynchronous")));
-                        return false;
-                    }
-
-                    std::static_pointer_cast<slave_module>(modspec.pmodule)
-                            ->set_master(static_cast<async_module *>(master));
                 }
             }
 

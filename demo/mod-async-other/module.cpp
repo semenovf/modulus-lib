@@ -46,7 +46,7 @@ bool module::on_start (modulus::settings_type const &)
 {
     std::puts("+++ mod-async-other +++");
     log_debug("on_start()");
-//     emitOnStartTest();
+    emitOnStartTest();
     _printer.reset(new Printer);
     return true;
 }
@@ -60,6 +60,8 @@ bool module::on_finish ()
 
 void module::onStartTest ()
 {
+    assert(_printer);
+
     if (_printer) {
         _printer->print("*** On start test ***");
     } else {

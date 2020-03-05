@@ -46,7 +46,7 @@ bool module::on_start (modulus::settings_type const &)
 {
     std::puts("+++ mod-ui-dialog +++");
     log_debug("on_start()");
-//     emitOnStartTest();
+    emitOnStartTest();
     _printer.reset(new Printer);
     return true;
 }
@@ -65,6 +65,8 @@ void module::onUiReady (bool ready)
 
 void module::onStartTest ()
 {
+    assert(_printer);
+
     if (_printer) {
         _printer->print("*** On start test ***");
     } else {

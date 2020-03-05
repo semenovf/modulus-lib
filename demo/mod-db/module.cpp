@@ -58,6 +58,8 @@ bool module::on_finish ()
 
 void module::onStartTest ()
 {
+    assert(_printer);
+
     if (_printer) {
         _printer->print("*** On start test ***");
     } else {
