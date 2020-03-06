@@ -803,7 +803,7 @@ struct modulus
                 // Async and slave modules started at async module's thread
                 // function
                 //if (ok && ! pmodule->is_slave() && ! pmodule->use_queued_slots()) {
-                if (ok && pmodule->is_slave() && ! pmodule->use_queued_slots()) {
+                if (ok && pmodule->is_slave() && pmodule->master() == this) {
                     if (! pmodule->on_start_wrapper(*_psettings)) {
                         ok = false;
                     }
