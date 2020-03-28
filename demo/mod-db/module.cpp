@@ -46,6 +46,11 @@ bool module::on_start (modulus::settings_type const &)
     log_debug("on_start()");
     emitOnStartTest();
     _printer.reset(new Printer);
+
+    acquire_timer_dispatcher(double{10}, double{10}, [this] {
+        log_debug("<<< Dispatcher timer >>>");
+    });
+
     return true;
 }
 

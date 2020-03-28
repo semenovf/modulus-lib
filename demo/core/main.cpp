@@ -55,5 +55,8 @@ int main (int argc, char * argv[])
     if (! ready)
         return -1;
 
+    if (!dispatcher.set_main_module("mod-ui"))
+        return -1;
+
     return dispatcher.exec();
 }
