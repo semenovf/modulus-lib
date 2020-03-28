@@ -593,6 +593,9 @@ struct modulus
 
             rc = run();
 
+            // Process remaining events
+            process_events();
+
             for (auto slave: _slaves) {
                 if (!slave->on_finish_wrapper()) {
                     ok = false;
