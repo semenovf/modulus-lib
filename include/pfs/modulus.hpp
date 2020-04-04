@@ -461,6 +461,8 @@ struct modulus
                 _pdispatcher->log_warn(concat(_name
                         , string_type(": failed to finalize module")));
             }
+
+            return true;
         }
 
     };// basic_module
