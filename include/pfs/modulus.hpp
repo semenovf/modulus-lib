@@ -677,7 +677,7 @@ struct modulus
         emitter_sequence  emitters;
         detector_sequence detectors;
 
-        virtual void connect_all ()
+        virtual void connect_all () override
         {
             if (emitters.size() == 0 || detectors.size() == 0)
                 return;
@@ -693,7 +693,7 @@ struct modulus
             }
         }
 
-        virtual void disconnect_all ()
+        virtual void disconnect_all () override
         {
             auto last = emitters.cend();
 
@@ -703,12 +703,12 @@ struct modulus
             }
         }
 
-        virtual void append_emitter (emitter_type * e)
+        virtual void append_emitter (emitter_type * e) override
         {
             emitters.push_back(reinterpret_cast<EmitterType*>(e));
         }
 
-        virtual void append_detector (basic_module * m, detector_handler d)
+        virtual void append_detector (basic_module * m, detector_handler d) override
         {
             detectors.push_back(detector_pair(m, d));
         }
