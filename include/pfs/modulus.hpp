@@ -1262,8 +1262,10 @@ struct modulus
         struct timer_callback_helper
         {
             typename timer_pool_type::callback_type callback;
-            basic_module * m = nullptr;
-            dispatcher * d = nullptr;
+            basic_module * m {nullptr};
+            dispatcher * d {nullptr};
+            timer_id timerid {0};
+            bool is_single_shot_timer {false};
 
             void operator () ()
             {
@@ -1277,9 +1279,17 @@ struct modulus
                     } else {
                         callback();
                     }
+
+                    if (is_single_shot_timer)
+                        m->destroy_timer(timerid);
+
                 } else if (d) {
                     d->callback_queue().push(callback);
+
+                    if (is_single_shot_timer)
+                        d->destroy_timer(timerid);
                 } else {
+                    // NOTE This will never be called in modulus
                     callback();
                 }
             }
@@ -1308,7 +1318,10 @@ struct modulus
             timer_callback_helper timer_callback;
             timer_callback.m = m;
             timer_callback.callback = std::move(callback);
-            return _ptimer_pool->create(delay, period, std::move(timer_callback));
+            timer_callback.is_single_shot_timer = (period == double{0});
+            timer_callback.timerid = _ptimer_pool->create(delay, period, std::move(timer_callback));
+
+            return timer_callback.timerid;
         }
 
         /**
@@ -1322,7 +1335,9 @@ struct modulus
             timer_callback_helper timer_callback;
             timer_callback.d = this;
             timer_callback.callback = std::move(callback);
-            return _ptimer_pool->create(delay, period, std::move(timer_callback));
+            timer_callback.is_single_shot_timer = (period == double{0});
+            timer_callback.timerid = _ptimer_pool->create(delay, period, std::move(timer_callback));
+            return timer_callback.timerid;
         }
 
         inline void destroy_timer (timer_id id)
