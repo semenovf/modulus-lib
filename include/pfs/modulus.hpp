@@ -579,7 +579,7 @@ struct modulus
             // 4. Wait special condition (all modules finished starting stage)
             // from dispatcher.
             while (!this->_pdispatcher->all_modules_started())
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
 
             if (!ok) {
                 this->quit();
