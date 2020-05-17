@@ -2,6 +2,7 @@ project(pfs_modulus_TESTS)
 option(ENABLE_COVERAGE "Build tests with coverage support" OFF)
 
 find_package(Threads)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/pfs-common/include)
 
 if (ENABLE_COVERAGE)
