@@ -261,7 +261,7 @@ public:
         ++cons3_counter;
     }
 
-    void run()
+    void run ()
     {
         int i = 0;
 

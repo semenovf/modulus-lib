@@ -147,6 +147,7 @@ public:
             --_count;
             locker.unlock();
 
+            // Process function
             pos->second();
 
             // Destroy item

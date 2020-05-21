@@ -14,7 +14,7 @@
 namespace mod {
 namespace link {
 
-class module : public modulus::module
+class module : public modulus::slave_module
 {
     std::unique_ptr<Printer> _printer;
 

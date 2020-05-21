@@ -4,8 +4,9 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
-//      2020.01.13 Added support for module configuration (pass user data, application settings)
+//      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs).
+//      2020.01.13 Added support for module configuration (pass user data, application settings).
+//      2020.05.21 Added support for dispatcher-dependent slave modules. (v2.1)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include "active_queue.hpp"
@@ -127,7 +128,7 @@ public:
         sigfillset(& act.sa_mask);
 
         auto ready = std::all_of(_quit_signums.cbegin(), _quit_signums.cend()
-                , [this, & act] (int signum) {
+                , [& act] (int signum) {
                         return sigaction(signum, & act, nullptr) >= 0;
                 });
 
@@ -299,9 +300,6 @@ struct modulus
         using detector_handler = modulus::detector_handler;
         using thread_function = modulus::thread_function;
 
-    public: // signals
-        typename sigslot_ns::template signal<string_type const &, bool &> emit_module_registered;
-
     protected:
         string_type  _name;
         dispatcher * _pdispatcher = nullptr;
@@ -449,7 +447,7 @@ struct modulus
 
             if (! _started) {
                 _pdispatcher->log_error(concat(_name
-                        , string_type(": failed to start module")));
+                    , string_type(": failed to start module")));
             }
 
             return _started;
@@ -459,7 +457,7 @@ struct modulus
         {
             if (! this->on_finish()) {
                 _pdispatcher->log_warn(concat(_name
-                        , string_type(": failed to finalize module")));
+                    , string_type(": failed to finalize module")));
             }
 
             return true;
@@ -472,10 +470,6 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     class module : public basic_module
     {
-        friend class dispatcher;
-
-        bool _slave {true}; // only for start stage
-
     protected:
         module () noexcept : basic_module()
         {}
@@ -488,17 +482,12 @@ struct modulus
 
         virtual bool is_slave () const final
         {
-            return _slave;
+            return false;
         }
 
         virtual typename sigslot_ns::basic_slot_holder * master () const
         {
             return this->_pdispatcher;
-        }
-
-        void reset_slave ()
-        {
-            _slave = false;
         }
     };
 
@@ -622,7 +611,8 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     class slave_module : public basic_module
     {
-        async_module * _master = nullptr;
+        //async_module * _master = nullptr;
+        typename sigslot_ns::basic_slot_holder * _master {nullptr};
 
     public:
         slave_module () : basic_module()
@@ -647,6 +637,11 @@ struct modulus
         {
             _master = master;
             master->add_slave(this);
+        }
+
+        void set_master (dispatcher * master)
+        {
+            _master = master;
         }
     };
 
@@ -732,6 +727,8 @@ struct modulus
         friend class module;
         friend class async_module;
 
+        using slaves_sequence_type = SequenceContainer<basic_module *>;
+
     public:
         using string_type = modulus::string_type;
         using logger_type = modulus::logger_type;
@@ -775,11 +772,10 @@ struct modulus
             for (; first != last; ++first) {
                 module_spec & modspec = first->second;
                 std::shared_ptr<basic_module> & pmodule = modspec.pmodule;
-                pmodule->emit_module_registered.disconnect(this);
-
                 log_debug(concat(pmodule->name(), string_type(": unregistered")));
 
-                // Need to destroy pmodule before dynamic library will be destroyed automatically
+                // Need to destroy pmodule before dynamic library will be
+                // destroyed automatically
                 pmodule.reset();
             }
 
@@ -795,30 +791,20 @@ struct modulus
             auto first = _module_spec_map.begin();
             auto last  = _module_spec_map.end();
 
+            // Launch on_start() method for regular modules
             for (; first != last; ++first) {
                 module_spec modspec = first->second;
                 std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
-                if (pmodule->is_slave() && pmodule->master() == nullptr) {
-                    log_error(concat(pmodule->name(), string_type(": module is slave but has no master")));
-                    ok = false;
-                }
+                bool is_regular_module = !pmodule->is_slave()
+                    && !pmodule->use_queued_slots();
 
-                // Launch on_start() methods for non-async and non-slave modules
-                // Async and slave modules started at async module's thread
-                // function
-                //if (ok && ! pmodule->is_slave() && ! pmodule->use_queued_slots()) {
-                if (ok && pmodule->is_slave() && pmodule->master() == this) {
-                    if (! pmodule->on_start_wrapper(*_psettings)) {
-                        ok = false;
-                    }
-
-                    std::static_pointer_cast<module>(pmodule)->reset_slave();
+                if (is_regular_module) {
+                    if (! pmodule->on_start_wrapper(*_psettings))
+                       ok = false;
                 }
             }
 
-            //
-            // All modules started successfully.
             // Redirect log ouput.
             if (ok) {
                 info_printer  = & dispatcher::async_print_info;
@@ -830,12 +816,15 @@ struct modulus
             return ok;
         }
 
-        void finalize ()
+        void finalize (bool was_success_start)
         {
             // Destroy timer pool
             _ptimer_pool.reset(nullptr);
 
-            this->_queue_ptr->call_all();
+            if (was_success_start)
+                this->_queue_ptr->call_all();
+            else
+                this->_queue_ptr->clear();
 
             info_printer  = & dispatcher::sync_print_info;
             debug_printer = & dispatcher::sync_print_debug;
@@ -849,21 +838,29 @@ struct modulus
                 for (; imodule != imodule_last; ++imodule) {
                     module_spec & modspec = imodule->second;
 
-                    // Launch on_finish() methods for non-async and non-slave
-                    // modules. Async and slave modules finalized at async
+                    // Launch on_finish() method for regular and dispatcher's
+                    // slave modules. Async and slave modules finalized at async
                     // module's thread function
-                    if (modspec.pmodule->is_started()
-                            && ! modspec.pmodule->is_slave()
-                            && ! modspec.pmodule->use_queued_slots()) {
-                        // Do not 'Call deferred callbacks in modules'
-                        // to avoid segmentation fault when signal handlers depends on varibales
-                        // which lifetime limited by run() method
-                        //
-        //                 // Call deferred callbacks in modules
-        //                 if (modspec.pmodule->use_queued_slots())
-        //                     static_cast<async_module *>(modspec.pmodule.get())->call_all();
+                    if (modspec.pmodule->is_started()) {
 
-                        modspec.pmodule->on_finish_wrapper();
+                        bool is_regular_module = !modspec.pmodule->is_slave()
+                            && !modspec.pmodule->use_queued_slots();
+
+                        bool is_dispatcher_slave_module = modspec.pmodule->is_slave()
+                            && modspec.pmodule->master() == this;
+
+                        if (is_regular_module || is_dispatcher_slave_module) {
+                            // Do not 'Call deferred callbacks in modules'
+                            // to avoid segmentation fault when signal handlers
+                            // depends on varibales which lifetime limited by
+                            // run() method
+
+                            // // Call deferred callbacks in modules
+                            // if (modspec.pmodule->use_queued_slots())
+                            //      static_cast<async_module *>(modspec.pmodule.get())->call_all();
+
+                            modspec.pmodule->on_finish_wrapper();
+                        }
                     }
                 }
 
@@ -871,7 +868,10 @@ struct modulus
                 unregister_all();
             }
 
-            this->_queue_ptr->call_all();
+            if (was_success_start)
+                this->_queue_ptr->call_all();
+            else
+                this->_queue_ptr->clear();
         }
 
         /**
@@ -879,7 +879,41 @@ struct modulus
          */
         void run ()
         {
+            auto first = _module_spec_map.begin();
+            auto last  = _module_spec_map.end();
+
+            bool ok = true;
+
+            // 1. Launch on_start() method for dispatcher's slave modules
+            for (; first != last; ++first) {
+                module_spec modspec = first->second;
+                std::shared_ptr<basic_module> pmodule = modspec.pmodule;
+
+                bool is_dispatcher_slave_module = pmodule->is_slave()
+                            && pmodule->master() == this;
+
+                if (is_dispatcher_slave_module) {
+                    if (! pmodule->on_start_wrapper(*_psettings)) {
+                        ok = false;
+                    }
+                }
+            }
+
+            // 2. Notify about starting stage finished
+            // for this module (the result is no matter).
+            notify_module_started();
+
+            // 3. Wait special condition (all modules finished starting stage)
+            // from dispatcher.
+            while (!all_modules_started())
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+            if (!ok)
+                this->quit();
+
+            // Run main loop
             auto pqueue = & this->callback_queue();
+            pqueue->call_all();
 
             while (! _quit_flag) {
                 if (pqueue->empty()) {
@@ -967,7 +1001,7 @@ struct modulus
 
         virtual ~dispatcher ()
         {
-            finalize();
+            finalize(false);
         }
 
         virtual void quit () override
@@ -986,11 +1020,12 @@ struct modulus
 
             connect_all();
 
-            if (start()) {
-                r = exec_main();
-            }
+            auto success_start = start();
 
-            finalize();
+            if (success_start)
+                r = exec_main();
+
+            finalize(success_start);
 
             return r;
         }
@@ -1027,47 +1062,49 @@ struct modulus
             auto const & module_name = name.first;
             auto const & dep_module_name = name.second;
 
+            if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
+                log_error(concat(pmodule->name()
+                    , string_type(": module already registered")));
+                return false;
+            }
+
             pmodule->set_dispatcher(this);
             pmodule->set_name(module_name);
 
             if (pmodule->use_queued_slots()) {
                 this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
-                        , static_cast<typename async_module::thread_function>(
-                                & async_module::thread_function_wrapper)));
+                    , static_cast<typename async_module::thread_function>(
+                        & async_module::thread_function_wrapper)));
             } else {
                 if (pmodule->is_slave()) {
-                    if (dep_module_name == "" && pmodule->master() != this) {
-                        log_error(concat(module_name
-                                , string_type(": master module must be specified for slave")));
-                        return false;
-                    }
-
-                    if (pmodule->master() != this) {
+                    // Master is dispatcher
+                    if (dep_module_name == "") {
+                        std::static_pointer_cast<slave_module>(modspec.pmodule)
+                            ->set_master(this);
+                    } else {
                         basic_module * master = this->find_registered_module(dep_module_name);
 
                         if (!master) {
-                            log_error(concat(dep_module_name, string_type(": module not found")));
+                            log_error(concat(dep_module_name
+                                , string_type(": module not found")));
                             return false;
                         }
 
                         if (!master->use_queued_slots()) {
-                            log_error(concat(dep_module_name, string_type(": module must be asynchronous")));
+                            log_error(concat(dep_module_name
+                                , string_type(": module must be asynchronous")));
                             return false;
                         }
 
                         std::static_pointer_cast<slave_module>(modspec.pmodule)
-                                ->set_master(static_cast<async_module *>(master));
+                            ->set_master(static_cast<async_module *>(master));
                     }
                 }
             }
 
-            if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
-                log_error(concat(pmodule->name(), string_type(": module already registered")));
-                return false;
-            }
-
             if (!pmodule->on_loaded()) {
-                log_error(concat(pmodule->name(), string_type(": on_loaded stage failed")));
+                log_error(concat(pmodule->name()
+                    , string_type(": on_loaded stage failed")));
                 return false;
             }
 
@@ -1085,10 +1122,10 @@ struct modulus
                         it->second->mapper->append_emitter(reinterpret_cast<emitter_type *>(emitters[i].emitter));
                     } else {
                         log_warn(concat(pmodule->name()
-                                , string_type(": emitter '")
-                                , lexical_cast<string_type>(emitters[i].id)
-                                , string_type("' not found while registering module, "
-                                              "may be signal/slot mapping is not supported for this application")));
+                            , string_type(": emitter '")
+                            , lexical_cast<string_type>(emitters[i].id)
+                            , string_type("' not found while registering module, "
+                                "may be signal/slot mapping is not supported for this application")));
                     }
                 }
             }
@@ -1102,17 +1139,15 @@ struct modulus
                         it->second->mapper->append_detector(pmodule.get(), detectors[i].detector);
                     } else {
                         log_warn(concat(pmodule->name()
-                                , string_type(": detector '")
-                                , lexical_cast<string_type>(detectors[i].id)
-                                , string_type("' not found while registering module, "
-                                              "may be signal/slot mapping is not supported for this application")));
+                            , string_type(": detector '")
+                            , lexical_cast<string_type>(detectors[i].id)
+                            , string_type("' not found while registering module, "
+                                "may be signal/slot mapping is not supported for this application")));
                     }
                 }
             }
 
-            pmodule->emit_module_registered.connect(this, & dispatcher::module_registered);
             _module_spec_map.insert(std::make_pair(pmodule->name(), modspec));
-
             log_debug(concat(pmodule->name(), string_type(": registered")));
 
             return true;
@@ -1170,12 +1205,6 @@ struct modulus
             module_spec modspec;
             modspec.pdl = pdl;
             modspec.pmodule = std::shared_ptr<basic_module>(ptr, module_deleter(module_dtor));
-
-//             if (modspec.pmodule->use_queued_slots()) {
-//                 this->_runnable_modules.emplace_back(std::make_pair(& *modspec.pmodule
-//                         , static_cast<typename async_module::thread_function>(
-//                                 & async_module::thread_function_wrapper)));
-//             }
 
             return modspec;
         }
@@ -1254,11 +1283,6 @@ struct modulus
             return _module_spec_map.size();
         }
 
-        bool is_module_registered (string_type const & modname) const
-        {
-            return _module_spec_map.find(modname) != _module_spec_map.end();
-        }
-
         struct timer_callback_helper
         {
             typename timer_pool_type::callback_type callback;
@@ -1297,12 +1321,12 @@ struct modulus
 
         void notify_module_started ()
         {
-            ++_modules_started_counter;
+            ++_atomic_modules_started_counter;
         }
 
         bool all_modules_started () const
         {
-            return _modules_started_counter == _runnable_modules.size();
+            return _atomic_modules_started_counter == _runnable_modules.size();
         }
 
         /**
@@ -1346,11 +1370,6 @@ struct modulus
         }
 
     public: // slots
-        void module_registered (string_type const & pname, bool & result)
-        {
-            result = is_module_registered(pname);
-        }
-
         void log_info (basic_module const * m, string_type const & s)
         {
             (this->*info_printer)(m, s);
@@ -1463,9 +1482,7 @@ struct modulus
         void (dispatcher::*error_printer) (basic_module const * m, string_type const & s);
 
         std::atomic_int         _quit_flag;
-        std::atomic_int         _modules_started_counter {0};
-//         mutex_type              _starting_mutex;
-//         condition_variable_type _starting_cv;
+        std::atomic_int         _atomic_modules_started_counter {-1};
         api_map_type            _api;
         module_spec_map_type    _module_spec_map;
         runnable_sequence_type  _runnable_modules;  // modules run in a separate threads

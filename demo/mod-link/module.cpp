@@ -42,10 +42,13 @@ bool module::on_loaded ()
 
 bool module::on_start (modulus::settings_type const &)
 {
-    std::puts("+++ mod-link +++");
     log_debug("on_start()");
-    emitOnStartTest();
     _printer.reset(new Printer);
+    emitOnStartTest();
+
+    acquire_timer(5, 1, [this] {
+        this->log_debug("One-second periodic timer fired");
+    });
    return true;
 }
 

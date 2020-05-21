@@ -42,16 +42,15 @@ bool module::on_loaded ()
 
 bool module::on_start (modulus::settings_type const &)
 {
-    std::puts("+++ mod-db +++");
     log_debug("on_start()");
-    emitOnStartTest();
     _printer.reset(new Printer);
+    emitOnStartTest();
 
     acquire_timer_dispatcher(double{10}, double{10}, [this] {
         log_debug("<<< Dispatcher timer >>>");
     });
 
-    return true;
+    return false;
 }
 
 bool module::on_finish ()
