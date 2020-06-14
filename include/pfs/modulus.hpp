@@ -721,7 +721,7 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
 // dispatcher
 ////////////////////////////////////////////////////////////////////////////////
-    class dispatcher : public basic_dispatcher, public sigslot_ns::queued_slot_holder
+    class dispatcher final : public basic_dispatcher, public sigslot_ns::queued_slot_holder
     {
         friend class basic_module;
         friend class module;
