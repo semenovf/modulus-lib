@@ -7,10 +7,12 @@
 //      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
+//#include "primal_binder.hpp" // TODO experimental
+#include <functional>
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -20,7 +22,54 @@ namespace pfs {
 template <typename T>
 using default_queue_container = std::deque<T>;
 
-template <template <typename> class QueueContainer = default_queue_container
+// TODO experimental
+// class active_binder
+// {
+//     std::unique_ptr<primal::basic_binder<void>> _f;
+//
+// public:
+//     active_binder () {}
+//     active_binder (active_binder && rhs) = default;
+//     active_binder & operator = (active_binder && rhs) = default;
+//
+//     template <typename F, typename... Args>
+//     active_binder (F && f, Args &&... args)
+//         : _f(new primal::binder<void, F, Args...>(std::forward<F>(f)
+//             , std::forward<Args>(args)...))
+//     {}
+//
+//     virtual ~active_binder () {}
+//
+//     void operator () () const
+//     {
+//         (*_f)();
+//     }
+//
+//     void swap (active_binder & rhs)
+//     {
+//         using std::swap;
+//         swap(_f, rhs._f);
+//     }
+// };
+
+// TODO experimental
+// template <typename F, typename... Args>
+// inline active_binder active_bind (F && func, Args &&... args)
+// {
+//     return active_binder(std::forward<F>(func), std::forward<Args>(args)...);
+// }
+
+template <typename F, typename... Args>
+inline auto active_bind (F && func, Args &&... args)
+    -> decltype(std::bind(std::forward<F>(func), std::forward<Args>(args)...))
+{
+    return std::bind(std::forward<F>(func), std::forward<Args>(args)...);
+}
+
+template <
+      typename FunctionItem = std::function<void ()>
+      // typename FunctionItem = active_binder // TODO experimental
+    , template <typename> class QueueContainer = default_queue_container
     // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
     , typename BasicLockable = std::mutex
     , int GcThreshold = 256>
@@ -35,7 +84,7 @@ private:
 
 public:
     // TODO Replace std::function<void ()> - too slow operations
-    using value_type = std::pair<state_enum, std::function<void ()>>;
+    using value_type = std::pair<state_enum, FunctionItem>;
 
     using mutex_type = BasicLockable;
     using queue_container_type = QueueContainer<value_type>;
@@ -54,7 +103,7 @@ private:
     std::condition_variable _non_empty_queue_cv;
 
 private:
-    void push_helper (std::function<void ()> && func)
+    void push_helper (FunctionItem && func)
     {
         std::unique_lock<mutex_type> locker(_mutex);
 
@@ -134,7 +183,10 @@ public:
     template <class F, typename ...Args>
     void push (F && f, Args &&... args)
     {
-        push_helper(std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+        //push_helper(std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+
+        // TODO experimental
+        push_helper(active_bind(std::forward<F>(f), std::forward<Args>(args)...));
     }
 
     void call ()
@@ -151,7 +203,7 @@ public:
             pos->second();
 
             // Destroy item
-            std::function<void ()> tmp;
+            FunctionItem tmp;
             tmp.swap(pos->second);
 
             locker.lock();

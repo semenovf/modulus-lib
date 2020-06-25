@@ -179,6 +179,8 @@ template <typename LoggerType = simple_logger
         , typename SettingsType = default_settings
         , typename TimerPool = default_timer_pool
 
+        , typename ActiveQueueFunctionItem = std::function<void ()>
+
         // For storing API map and module specs
         , template <typename, typename> class AssociativeContainer = default_associative_container
 
@@ -206,7 +208,8 @@ struct modulus
     using timer_id = typename timer_pool_type::timer_id;
     using mutex_type = BasicLockable;
     using condition_variable_type = ConditionVariable;
-    using callback_queue_type = active_queue<QueueContainer
+    using callback_queue_type = active_queue<ActiveQueueFunctionItem
+        , QueueContainer
         , BasicLockable
         , GcThreshold>;
 
@@ -874,8 +877,8 @@ struct modulus
                 this->_queue_ptr->clear();
         }
 
-        /**
-         * @brief Internal dispatcher loop.
+        /*
+         * Internal dispatcher loop.
          */
         void run ()
         {
@@ -1161,10 +1164,10 @@ struct modulus
             auto pdl = std::make_shared<dynamic_library>();
             std::error_code ec;
 
-            filesystem::path dlpath(path);
+            std::filesystem::path dlpath(path);
 
             if (path.is_relative()) {
-                dlpath = filesystem::path(".") / path;
+                dlpath = std::filesystem::path(".") / path;
             }
 
             //if (!pdl->open(dlpath, _searchdirs, ec)) {

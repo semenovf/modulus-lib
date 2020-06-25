@@ -112,16 +112,19 @@ static int counter3 = 0;
 
 void func1 ()
 {
+    std::printf("func1: %d\n", counter1);
     ++counter1;
 }
 
 void func2 (int)
 {
+    std::printf("func2: %d\n", counter2);
     ++counter2;
 }
 
 void func3 (int, char)
 {
+    std::printf("func3: %d\n", counter3);
     ++counter3;
 }
 
@@ -149,6 +152,7 @@ TEST_CASE("Active Queue: 2") {
     MESSAGE("Limit for queue size to start calls: " << limit);
 
     for (int i = 0; i < max; ++i) {
+        std::cout << "Push: " << i << "\n";
         q.push(& t2::func1);
         q.push(& t2::func2, i);
         q.push(& t2::func3, i, 'W');

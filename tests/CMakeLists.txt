@@ -1,9 +1,4 @@
-project(pfs_modulus_TESTS)
 option(ENABLE_COVERAGE "Build tests with coverage support" OFF)
-
-find_package(Threads)
-include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${CMAKE_SOURCE_DIR}/pfs-common/include)
 
 if (ENABLE_COVERAGE)
     message(STATUS "Coverage feature enabled")
@@ -16,19 +11,26 @@ if (ENABLE_COVERAGE)
 endif()
 
 add_executable(sigslot sigslot.cpp)
+target_link_libraries(sigslot PRIVATE pfs::modulus)
 add_test(NAME sigslot COMMAND sigslot)
 
+# FIXME Uses some C++14 features (need workaround for C++11)
+# add_executable(primal_binder primal_binder.cpp)
+# target_link_libraries(primal_binder pfs::modulus)
+# add_test(NAME primal_binder COMMAND primal_binder)
+
 add_executable(active_queue active_queue.cpp)
-target_link_libraries(active_queue Threads::Threads)
+target_link_libraries(active_queue PRIVATE pfs::modulus)
 add_test(NAME active_queue COMMAND active_queue)
 
 add_executable(timer timer.cpp)
-target_link_libraries(timer Threads::Threads)
+target_link_libraries(timer PRIVATE pfs::modulus)
 
 add_executable(modulus modulus.cpp)
-target_link_libraries(modulus Threads::Threads)
+target_link_libraries(modulus PRIVATE pfs::modulus)
 
 if (UNIX)
-    target_link_libraries(modulus dl)
+    target_link_libraries(modulus PRIVATE dl)
 endif()
+
 add_test(NAME modulus COMMAND modulus)
