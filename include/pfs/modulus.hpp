@@ -1369,7 +1369,9 @@ struct modulus
 
         inline void destroy_timer (timer_id id)
         {
-            _ptimer_pool->destroy(id);
+            // _ptimer_pool may be already destroyed (i.e. on finalize())
+            if (_ptimer_pool)
+                _ptimer_pool->destroy(id);
         }
 
     public: // slots
