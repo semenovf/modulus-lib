@@ -19,6 +19,10 @@ add_test(NAME sigslot COMMAND sigslot)
 # target_link_libraries(primal_binder pfs::modulus)
 # add_test(NAME primal_binder COMMAND primal_binder)
 
+add_executable(legacy_binder legacy_binder.cpp)
+target_link_libraries(legacy_binder pfs::modulus)
+add_test(NAME legacy_binder COMMAND legacy_binder)
+
 add_executable(active_queue active_queue.cpp)
 target_link_libraries(active_queue PRIVATE pfs::modulus)
 add_test(NAME active_queue COMMAND active_queue)
