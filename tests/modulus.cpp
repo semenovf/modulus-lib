@@ -11,8 +11,15 @@
 #include "pfs/modulus.hpp"
 #include <cstring>
 #include <limits>
+#include <string>
 
 using modulus = pfs::modulus<>;
+
+struct Data
+{
+    std::string name {"a"};
+    std::string value {"b"};
+};
 
 class emitter_module : public modulus::module
 {
@@ -38,16 +45,22 @@ public:
                 , std::numeric_limits<short>::max()
                 , std::numeric_limits<int>::max());
 
-        emitFiveArgs ( true, 'c'
+        emitFiveArgs(true, 'c'
                 , std::numeric_limits<short>::max()
                 , std::numeric_limits<int>::max()
-                , std::numeric_limits<int>::max() );
+                , std::numeric_limits<int>::max());
 
-        emitSixArgs ( true, 'c'
+        emitSixArgs(true, 'c'
                 , std::numeric_limits<short>::max()
                 , std::numeric_limits<int>::max()
                 , std::numeric_limits<int>::max()
-                , "Hello, World!" );
+                , "Hello, World!");
+
+        Data d;
+        d.name = std::string{"Name"};
+        d.value = std::string{"Value"};
+
+        emitData(std::move(d));
 
         return true;
     }
@@ -65,6 +78,7 @@ public:
         , MODULUS_EMITTER(4, emitFourArgs)
         , MODULUS_EMITTER(5, emitFiveArgs)
         , MODULUS_EMITTER(6, emitSixArgs)
+        , MODULUS_EMITTER(7, emitData)
     MODULUS_END_EMITTERS
 
 public: /*signal*/
@@ -75,6 +89,7 @@ public: /*signal*/
     modulus::sigslot_ns::signal<bool, char, short, int> emitFourArgs;
     modulus::sigslot_ns::signal<bool, char, short, int, long> emitFiveArgs;
     modulus::sigslot_ns::signal<bool, char, short, int, long, const char *> emitSixArgs;
+    modulus::sigslot_ns::signal<Data> emitData;
 };
 
 class detector_module : public modulus::module
@@ -106,6 +121,7 @@ public:
         , MODULUS_DETECTOR(4, detector_module::onFourArgs)
         , MODULUS_DETECTOR(5, detector_module::onFiveArgs)
         , MODULUS_DETECTOR(6, detector_module::onSixArgs)
+        , MODULUS_DETECTOR(7, detector_module::onData)
     MODULUS_END_DETECTORS
 
 private:
@@ -153,6 +169,13 @@ private:
         _counter++;
         CHECK(ok);
         CHECK(std::strcmp("Hello, World!", hello) == 0);
+    }
+
+    void onData (Data const & d)
+    {
+        _counter++;
+        CHECK(d.name == "Name");
+        CHECK(d.value == "Value");
     }
 };
 
@@ -204,8 +227,9 @@ public:
     MODULUS_END_EMITTERS
 
     MODULUS_BEGIN_INLINE_DETECTORS
-          MODULUS_DETECTOR (1, slave_module::onOneArg)
-        , MODULUS_DETECTOR (2, slave_module::onTwoArgs)
+          MODULUS_DETECTOR(1, slave_module::onOneArg)
+        , MODULUS_DETECTOR(2, slave_module::onTwoArgs)
+        , MODULUS_DETECTOR(7, slave_module::onData)
     MODULUS_END_DETECTORS
 
 public: /*signal*/
@@ -224,6 +248,13 @@ public: /*slots*/
         CHECK(ok);
         CHECK_MESSAGE(ch == 'c', "from slave_module: onTwoArgs(true, 'c')");
     }
+
+    void onData (Data const & d)
+    {
+        _counter++;
+        CHECK_MESSAGE(d.name == "Name", "from slave_module: onData()");
+        CHECK_MESSAGE(d.value == "Value", "from slave_module: onData()");
+    }
 };
 
 static modulus::api_item_type API[] = {
@@ -234,6 +265,7 @@ static modulus::api_item_type API[] = {
     , { 4 , modulus::make_mapper<bool, char, short, int>(), "FourArgs description" }
     , { 5 , modulus::make_mapper<bool, char, short, int, long>(), "FiveArgs description" }
     , { 6 , modulus::make_mapper<bool, char, short, int, long, const char*>(), "SixArgs description" }
+    , { 7 , modulus::make_mapper<Data>(), "Data description" }
 };
 
 TEST_CASE("Modulus basics") {

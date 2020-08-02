@@ -67,7 +67,7 @@ struct sigslot
     public:
         virtual ~basic_connection () {}
         virtual basic_slot_holder * get_slot_holder () const = 0;
-        virtual void emit_signal (Args &&...) = 0;
+        virtual void emit_signal (Args const &...) = 0;
     };
 
     class basic_signal : public mutex_type
@@ -296,7 +296,7 @@ struct sigslot
             , _pmemfun(pmemfun)
         {}
 
-        virtual void emit_signal (Args &&... args)
+        virtual void emit_signal (Args const &... args) override
         {
             using method_type = void (SlotHolderClass::*)(Args...);
 
@@ -304,26 +304,22 @@ struct sigslot
                 SlotHolderClass * pobject = _pobject;
                 method_type pmemfun = _pmemfun;
 
-                //_pobject->callback_queue().template push<method_type, SlotHolderClass
-                //        , Args...>(std::move(pmemfun), std::move(pobject), std::forward<Args>(args)...);
                 _pobject->callback_queue().push(std::move(pmemfun)
                         , std::move(pobject)
-                        , std::forward<Args>(args)...);
+                        , args...);
             } else if (_pobject->is_slave()) {
                 SlotHolderClass * pobject = _pobject;
                 method_type pmemfun = _pmemfun;
 
-                // _pobject->master()->callback_queue().template push<SlotHolderClass
-                //           , Args...>(_pmemfun, _pobject, std::forward<Args>(args)...);
                 _pobject->master()->callback_queue().push(std::move(pmemfun)
                         , std::move(pobject)
-                        , std::forward<Args>(args)...);
+                        , args...);
             } else {
-                (_pobject->*_pmemfun)(std::forward<Args>(args)...);
+                (_pobject->*_pmemfun)(args...);
             }
         }
 
-        virtual basic_slot_holder * get_slot_holder () const
+        virtual basic_slot_holder * get_slot_holder () const override
         {
             return _pobject;
         }
@@ -364,7 +360,7 @@ struct sigslot
                 auto next = it;
                 ++next;
 
-                (*it)->emit_signal(std::forward<Args>(args)...);
+                (*it)->emit_signal(args...);
 
                 it = next;
             }
