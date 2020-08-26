@@ -565,15 +565,15 @@ struct modulus
             }
 
             // 3. Notify dispatcher about starting stage finished
-            // for this module (the result is no matter).
-            this->_pdispatcher->notify_module_started();
+            // for this module.
+            this->_pdispatcher->notify_module_started(ok);
 
             // 4. Wait special condition (all modules finished starting stage)
             // from dispatcher.
             while (!this->_pdispatcher->all_modules_started())
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
 
-            if (!ok) {
+            if (!  this->_pdispatcher->_atomic_modules_started_successfully.load()) {
                 this->quit();
                 return dispatcher::exit_status::failure;
             }
@@ -904,14 +904,14 @@ struct modulus
 
             // 2. Notify about starting stage finished
             // for this module (the result is no matter).
-            notify_module_started();
+            notify_module_started(ok);
 
             // 3. Wait special condition (all modules finished starting stage)
             // from dispatcher.
             while (!all_modules_started())
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
 
-            if (!ok)
+            if (! _atomic_modules_started_successfully.load())
                 this->quit();
 
             // Run main loop
@@ -1322,8 +1322,10 @@ struct modulus
             }
         };
 
-        void notify_module_started ()
+        void notify_module_started (bool ok)
         {
+            if (!ok)
+                _atomic_modules_started_successfully.store(false);
             ++_atomic_modules_started_counter;
         }
 
@@ -1488,6 +1490,7 @@ struct modulus
 
         std::atomic_int         _quit_flag;
         std::atomic_int         _atomic_modules_started_counter {-1};
+        std::atomic_bool        _atomic_modules_started_successfully {true};
         api_map_type            _api;
         module_spec_map_type    _module_spec_map;
         runnable_sequence_type  _runnable_modules;  // modules run in a separate threads

@@ -50,7 +50,7 @@ bool module::on_start (modulus::settings_type const &)
         log_debug("<<< Dispatcher timer >>>");
     });
 
-    return false;
+    return true;
 }
 
 bool module::on_finish ()

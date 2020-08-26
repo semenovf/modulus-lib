@@ -52,40 +52,20 @@ class binder: public basic_binder<R>
     {
         template </*typename R1, */typename... U>
         inline
-//         inline typename std::enable_if<
-//             std::is_same<R1, void>::value, void>::type
         void invoke (F const & func, U &&... args) const
         {
             func(std::forward<U>(args)...);
         }
-
-//         template <typename R1, typename... U>
-//         inline typename std::enable_if<
-//             !std::is_same<R1, void>::value, R1>::type
-//         invoke (F const & func, U &&... args) const
-//         {
-//             return func(std::forward<U>(args)...);
-//         }
     };
 
     struct member_function_invoker
     {
         template </*typename R1, */typename ClassT, typename ...U>
         inline
-//         inline typename std::enable_if<
-//             std::is_same<R1, void>::value, void>::type
         void invoke (F const & func, ClassT * o, U &&... args) const
         {
             (o->*func)(std::forward<U>(args)...);
         }
-
-//         template <typename R1, typename ClassT, typename ...U>
-//         inline typename std::enable_if<
-//             !std::is_same<R1, void>::value, R1>::type
-//         invoke (F const & func, ClassT * o, U &&... args) const
-//         {
-//             return (o->*func)(std::forward<U>(args)...);
-//         }
     };
 
     using invoker_type = typename std::conditional<
@@ -128,13 +108,6 @@ protected:
 template <typename F, typename... Args>
 inline binder<void, F, Args...> bind (F && func, Args &&... args)
 {
-//     using result_type =
-// #if __cplusplus < 201703L
-//         typename std::result_of<F(Args...)>::type;
-// #else
-//         std::invoke_result_t<F(Args...)>;
-// #endif
-
     return binder<void, F, Args...>(func, std::forward<Args>(args)...);
 }
 

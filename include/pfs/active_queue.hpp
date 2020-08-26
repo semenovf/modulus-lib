@@ -7,12 +7,10 @@
 //      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
-//#include "primal_binder.hpp" // TODO experimental
-#include <functional>
-
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -21,43 +19,6 @@ namespace pfs {
 
 template <typename T>
 using default_queue_container = std::deque<T>;
-
-// TODO experimental
-// class active_binder
-// {
-//     std::unique_ptr<primal::basic_binder<void>> _f;
-//
-// public:
-//     active_binder () {}
-//     active_binder (active_binder && rhs) = default;
-//     active_binder & operator = (active_binder && rhs) = default;
-//
-//     template <typename F, typename... Args>
-//     active_binder (F && f, Args &&... args)
-//         : _f(new primal::binder<void, F, Args...>(std::forward<F>(f)
-//             , std::forward<Args>(args)...))
-//     {}
-//
-//     virtual ~active_binder () {}
-//
-//     void operator () () const
-//     {
-//         (*_f)();
-//     }
-//
-//     void swap (active_binder & rhs)
-//     {
-//         using std::swap;
-//         swap(_f, rhs._f);
-//     }
-// };
-
-// TODO experimental
-// template <typename F, typename... Args>
-// inline active_binder active_bind (F && func, Args &&... args)
-// {
-//     return active_binder(std::forward<F>(func), std::forward<Args>(args)...);
-// }
 
 template <typename F, typename... Args>
 inline auto active_bind (F && func, Args &&... args)
@@ -68,7 +29,6 @@ inline auto active_bind (F && func, Args &&... args)
 
 template <
       typename FunctionItem = std::function<void ()>
-      // typename FunctionItem = active_binder // TODO experimental
     , template <typename> class QueueContainer = default_queue_container
     // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
     , typename BasicLockable = std::mutex
@@ -83,7 +43,6 @@ private:
     };
 
 public:
-    // TODO Replace std::function<void ()> - too slow operations
     using value_type = std::pair<state_enum, FunctionItem>;
 
     using mutex_type = BasicLockable;
@@ -98,10 +57,6 @@ private:
     std::atomic_size_t   _count;
     mutable mutex_type   _mutex;
 
-    // TODO Use cv to control queue fullness
-    //mutable mutex_type      _non_empty_queue_mutex;
-    std::condition_variable _non_empty_queue_cv;
-
 private:
     void push_helper (FunctionItem && func)
     {
@@ -113,7 +68,6 @@ private:
         _queue.emplace_back(std::make_pair(BUSY, std::move(func)));
 
         ++_count;
-        _non_empty_queue_cv.notify_one();
     }
 
     iterator front_busy ()
@@ -121,7 +75,7 @@ private:
         iterator pos = _queue.begin();
         iterator end = _queue.end();
 
-        // TODO Need an optimization to access to the first BUSY element
+        // TODO Need an optimization of access to the first BUSY element
         while (pos != end) {
             if (pos->first == BUSY) {
                 pos->first = PROCESSING;
@@ -183,9 +137,6 @@ public:
     template <class F, typename ...Args>
     void push (F && f, Args &&... args)
     {
-        //push_helper(std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-
-        // TODO experimental
         push_helper(active_bind(std::forward<F>(f), std::forward<Args>(args)...));
     }
 
