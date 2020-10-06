@@ -653,6 +653,7 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     struct basic_sigslot_mapper
     {
+        virtual ~basic_sigslot_mapper () {}
         virtual void connect_all () = 0;
         virtual void disconnect_all () = 0;
         virtual void append_emitter (emitter_type * em) = 0;
