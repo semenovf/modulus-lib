@@ -5,20 +5,26 @@
 //
 // Changelog:
 //      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
+//      2020.10.26 Changed default_queue_container (ring_buffer_mt now)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
+#include "pfs/ring_buffer.hpp"
 #include <atomic>
 #include <condition_variable>
-#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <cassert>
 
 namespace pfs {
 
+namespace active_queue_details {
+
 template <typename T>
-using default_queue_container = std::deque<T>;
+using default_queue_container = ring_buffer_mt<T, 256>;
+
+} // namespace active_queue_details
 
 template <typename F, typename... Args>
 inline auto active_bind (F && func, Args &&... args)
@@ -29,89 +35,34 @@ inline auto active_bind (F && func, Args &&... args)
 
 template <
       typename FunctionItem = std::function<void ()>
-    , template <typename> class QueueContainer = default_queue_container
-    // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
-    , typename BasicLockable = std::mutex
-    , int GcThreshold = 256>
+    , template <typename> class QueueContainer = active_queue_details::default_queue_container
+    , typename BasicLockable = std::mutex>
 class active_queue
 {
-private:
-    enum state_enum {
-          FREE      // Candidate for memory deallocation
-        , BUSY
-        , PROCESSING
-    };
-
 public:
-    using value_type = std::pair<state_enum, FunctionItem>;
-
+    using value_type = FunctionItem;
     using mutex_type = BasicLockable;
     using queue_container_type = QueueContainer<value_type>;
     using size_type = typename queue_container_type::size_type;
-    using iterator = typename queue_container_type::iterator;
-
-    static constexpr size_type GC_THRESHOLD = GcThreshold;
+    static constexpr size_type default_capacity_increment = 256;
 
 private:
-    queue_container_type _queue;
-    std::atomic_size_t   _count;
-    mutable mutex_type   _mutex;
-
-private:
-    void push_helper (FunctionItem && func)
-    {
-        std::unique_lock<mutex_type> locker(_mutex);
-
-        if (_queue.size() > GC_THRESHOLD && _queue.begin()->first == FREE)
-            gc();
-
-        _queue.emplace_back(std::make_pair(BUSY, std::move(func)));
-
-        ++_count;
-    }
-
-    iterator front_busy ()
-    {
-        iterator pos = _queue.begin();
-        iterator end = _queue.end();
-
-        // TODO Need an optimization of access to the first BUSY element
-        while (pos != end) {
-            if (pos->first == BUSY) {
-                pos->first = PROCESSING;
-                break;
-            }
-            ++pos;
-        }
-
-        return pos;
-    }
-
-private:
-    // Garbage collector
-    void gc ()
-    {
-        iterator pos = _queue.begin();
-        iterator end = _queue.end();
-
-        while (pos != end && pos->first == FREE)
-            ++pos;
-
-        _queue.erase(_queue.begin(), pos);
-    }
+    queue_container_type _q;
+    size_type _capacity_inc {256};
 
 public:
-    active_queue () : _count(0) {}
+    active_queue (size_type capacity_inc = default_capacity_increment)
+        : _capacity_inc(capacity_inc != 0 ? capacity_inc : default_capacity_increment)
+    {}
 
     virtual ~active_queue ()
     {
-        // Do not call `call_all` method and `gc` methods
         clear();
     }
 
     bool empty () const
     {
-        return _count == 0;
+        return _q.empty();
     }
 
     /**
@@ -119,48 +70,32 @@ public:
      */
     size_type count () const
     {
-        return _count;
+        return _q.size();
     }
 
     size_type size () const
     {
-        std::unique_lock<mutex_type> locker(_mutex);
-        return _queue.size();
+        return _q.size();
     }
 
     void clear ()
     {
-        std::unique_lock<mutex_type> locker(_mutex);
-        _queue.clear();
+        _q.clear();
     }
 
     template <class F, typename ...Args>
     void push (F && f, Args &&... args)
     {
-        push_helper(active_bind(std::forward<F>(f), std::forward<Args>(args)...));
+        assert(_q.try_push(active_bind(std::forward<F>(f)
+            , std::forward<Args>(args)...), _q.capacity() + _capacity_inc));
     }
 
     void call ()
     {
-        std::unique_lock<mutex_type> locker(_mutex);
+        value_type caller;
 
-        iterator pos = front_busy();
-
-        if (pos != _queue.end()) {
-            --_count;
-            locker.unlock();
-
-            // Process function
-            pos->second();
-
-            // Destroy item
-            FunctionItem tmp;
-            tmp.swap(pos->second);
-
-            locker.lock();
-
-            pos->first = FREE;
-        }
+        if (_q.try_pop(caller))
+            caller();
     }
 
     void call (int max_count)

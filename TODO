@@ -1,1 +1,2 @@
 1. Add support for register detector (slot) as lambda
+2. Implement active_queue as pool of buffers

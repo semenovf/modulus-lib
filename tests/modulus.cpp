@@ -194,6 +194,8 @@ public:
         }
 
         quit();
+
+        return 0;
     }
 };
 

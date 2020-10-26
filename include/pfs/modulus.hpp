@@ -157,7 +157,7 @@ template <typename T>
 using default_sequence_container = std::list<T>;
 
 template <typename T>
-using default_queue_container = std::deque<T>;
+using default_queue_container =  active_queue_details::default_queue_container<T>;
 
 using default_basic_lockable = std::mutex;
 using default_condition_variable = std::condition_variable;
@@ -193,7 +193,7 @@ template <typename LoggerType = simple_logger
         // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
         , typename BasicLockable = default_basic_lockable
         , typename ConditionVariable = default_condition_variable
-        , int GcThreshold = 256>
+        /*, int GcThreshold = 256*/>
 struct modulus
 {
     class basic_module;
@@ -210,8 +210,8 @@ struct modulus
     using condition_variable_type = ConditionVariable;
     using callback_queue_type = active_queue<ActiveQueueFunctionItem
         , QueueContainer
-        , BasicLockable
-        , GcThreshold>;
+        , BasicLockable/*
+        , GcThreshold*/>;
 
     using sigslot_ns = sigslot<callback_queue_type, BasicLockable>;
     using emitter_type  = typename sigslot_ns::template signal<>;
