@@ -112,19 +112,19 @@ static int counter3 = 0;
 
 void func1 ()
 {
-//     std::printf("func1: %d\n", counter1);
+    //std::printf("func1: %d\n", counter1);
     ++counter1;
 }
 
 void func2 (int)
 {
-//     std::printf("func2: %d\n", counter2);
+    //std::printf("func2: %d\n", counter2);
     ++counter2;
 }
 
 void func3 (int, char)
 {
-//     std::printf("func3: %d\n", counter3);
+    //std::printf("func3: %d\n", counter3);
     ++counter3;
 }
 
@@ -298,8 +298,8 @@ TEST_CASE("Active Queue: 3") {
     t3::producer3 prod3;
 
     std::thread th0(& t3::consumer::run, & cons);
-    //std::thread th1(& t3::producer1::run, & prod1);
-    //std::thread th2(& t3::producer2::run, & prod2);
+    std::thread th1(& t3::producer1::run, & prod1);
+    std::thread th2(& t3::producer2::run, & prod2);
     std::thread th3(& t3::producer3::run, & prod3);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -307,8 +307,8 @@ TEST_CASE("Active Queue: 3") {
     t3::is_finish = 1;
 
     th0.join();
-    //th1.join();
-    //th2.join();
+    th1.join();
+    th2.join();
     th3.join();
 
     CHECK(t3::result == 0);
@@ -332,8 +332,6 @@ TEST_CASE("Active Queue: 3") {
 
     MESSAGE("\tq.count() == " << t3::q.count() << " (must be 0)");
 }
-
-#if __COMMENT__
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test 4:
@@ -483,5 +481,3 @@ TEST_CASE("Active Queue: 5")
 
     CHECK(t5::counter == t5::COUNT * t5::PRODUCER_COUNT);
 }
-
-#endif // __COMMENT__

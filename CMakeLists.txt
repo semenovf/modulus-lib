@@ -34,6 +34,10 @@ if (UNIX)
     target_link_libraries(${PROJECT_NAME} INTERFACE dl)
 endif()
 
+if (MSVC)
+    add_compile_options(-D_UNICODE)
+endif()
+
 if (${PROJECT_NAME}_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

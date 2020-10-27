@@ -48,7 +48,7 @@ public:
 
 private:
     queue_container_type _q;
-    size_type _capacity_inc {256};
+    size_type _capacity_inc {default_capacity_increment};
 
 public:
     active_queue (size_type capacity_inc = default_capacity_increment)
@@ -86,16 +86,17 @@ public:
     template <class F, typename ...Args>
     void push (F && f, Args &&... args)
     {
-        assert(_q.try_push(active_bind(std::forward<F>(f)
-            , std::forward<Args>(args)...), _q.capacity() + _capacity_inc));
+        assert(_q.try_push(active_bind(std::forward<F>(f), std::forward<Args>(args)...)
+            , _capacity_inc));
     }
 
     void call ()
     {
         value_type caller;
 
-        if (_q.try_pop(caller))
+        if (_q.try_pop(caller)) {
             caller();
+        }
     }
 
     void call (int max_count)
