@@ -88,7 +88,7 @@ public: /*signal*/
     modulus::sigslot_ns::signal<bool, char, short> emitThreeArgs;
     modulus::sigslot_ns::signal<bool, char, short, int> emitFourArgs;
     modulus::sigslot_ns::signal<bool, char, short, int, long> emitFiveArgs;
-    modulus::sigslot_ns::signal<bool, char, short, int, long, const char *> emitSixArgs;
+    modulus::sigslot_ns::signal<bool, char, short, int, long, std::string> emitSixArgs;
     modulus::sigslot_ns::signal<Data> emitData;
 };
 
@@ -164,11 +164,11 @@ private:
         CHECK(i == std::numeric_limits<int>::max());
     }
 
-    void onSixArgs (bool ok, char, short, int, long, char const * hello)
+    void onSixArgs (bool ok, char, short, int, long, std::string hello)
     {
         _counter++;
         CHECK(ok);
-        CHECK(std::strcmp("Hello, World!", hello) == 0);
+        CHECK(std::strcmp("Hello, World!", hello.c_str()) == 0);
     }
 
     void onData (Data const & d)
@@ -266,7 +266,7 @@ static modulus::api_item_type API[] = {
     , { 3 , modulus::make_mapper<bool, char, short>(), "ThreeArgs(bool b, char ch, short n)" }
     , { 4 , modulus::make_mapper<bool, char, short, int>(), "FourArgs description" }
     , { 5 , modulus::make_mapper<bool, char, short, int, long>(), "FiveArgs description" }
-    , { 6 , modulus::make_mapper<bool, char, short, int, long, const char*>(), "SixArgs description" }
+    , { 6 , modulus::make_mapper<bool, char, short, int, long, std::string>(), "SixArgs description" }
     , { 7 , modulus::make_mapper<Data>(), "Data description" }
 };
 

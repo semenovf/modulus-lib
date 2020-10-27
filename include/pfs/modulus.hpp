@@ -14,9 +14,9 @@
 #include "timer.hpp"
 #include "pfs/filesystem.hpp"
 #include "pfs/dynamic_library.hpp"
+#include "pfs/integral_cast.hpp"
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
 #include <deque>
 #include <list>
 #include <map>
@@ -34,6 +34,8 @@
 #endif
 
 namespace pfs {
+
+namespace fs = std::filesystem;
 
 template <typename ResultType, typename T>
 struct lexical_caster
@@ -54,11 +56,43 @@ struct lexical_caster<std::string, T>
 template <>
 struct lexical_caster<std::string, std::string>
 {
-    static inline std::string cast (std::string const & arg)
+    static inline std::string cast(std::string const& arg)
     {
         return arg;
     }
 };
+
+#if defined(_WIN32) || defined(_WIN64)
+template <>
+struct lexical_caster<std::string, std::wstring>
+{
+    static inline std::string cast (std::wstring const & arg)
+    {
+        // Use utf8_encode from pfs/dynamic_library.hpp
+        return utf8_encode(arg.c_str(), static_cast<int>(arg.size()));
+    }
+};
+
+template <>
+struct lexical_caster<std::wstring, std::string>
+{
+    static inline std::wstring cast (std::string const & arg)
+    {
+        // Use utf8_decode from pfs/dynamic_library.hpp
+        return utf8_decode(arg.c_str(), static_cast<int>(arg.size()));
+    }
+};
+
+template <>
+struct lexical_caster<std::wstring, std::wstring>
+{
+    static inline std::wstring cast(std::wstring const & arg)
+    {
+        return arg;
+    }
+};
+
+#endif
 
 template <typename ResultType, typename T>
 inline ResultType lexical_cast (T const & arg)
@@ -160,8 +194,6 @@ template <typename T>
 using default_queue_container =  active_queue_details::default_queue_container<T>;
 
 using default_basic_lockable = std::mutex;
-using default_condition_variable = std::condition_variable;
-
 using default_timer_pool = timer_pool<>;
 
 struct default_settings {};
@@ -191,9 +223,7 @@ template <typename LoggerType = simple_logger
         , template <typename> class QueueContainer = default_queue_container
 
         // see [C++ concepts: BasicLockable](http://en.cppreference.com/w/cpp/concept/BasicLockable)>
-        , typename BasicLockable = default_basic_lockable
-        , typename ConditionVariable = default_condition_variable
-        /*, int GcThreshold = 256*/>
+        , typename BasicLockable = default_basic_lockable>
 struct modulus
 {
     class basic_module;
@@ -207,11 +237,9 @@ struct modulus
     using timer_pool_type = TimerPool;
     using timer_id = typename timer_pool_type::timer_id;
     using mutex_type = BasicLockable;
-    using condition_variable_type = ConditionVariable;
     using callback_queue_type = active_queue<ActiveQueueFunctionItem
         , QueueContainer
-        , BasicLockable/*
-        , GcThreshold*/>;
+        , BasicLockable>;
 
     using sigslot_ns = sigslot<callback_queue_type, BasicLockable>;
     using emitter_type  = typename sigslot_ns::template signal<>;
@@ -299,9 +327,14 @@ struct modulus
     public:
         using string_type = StringType;
         using emitter_mapper_pair = modulus::emitter_mapper_pair;
-        using detector_mapper_pair = modulus::detector_mapper_pair;
+
+        // MSVC do not want 'detector_mapper_pair' definition in upper level, so duplicate here
+        typedef struct { int id; detector_handler detector; } detector_mapper_pair;
+        //using detector_mapper_pair = modulus::detector_mapper_pair;
+
         using detector_handler = modulus::detector_handler;
-        using thread_function = modulus::thread_function;
+        using thread_function = int (basic_module::*)(settings_type const &);
+        //using thread_function = modulus::thread_function;
 
     protected:
         string_type  _name;
@@ -1113,7 +1146,7 @@ struct modulus
             }
 
             emitter_mapper_pair const * emitters = pmodule->get_emitters(nemitters);
-            detector_mapper_pair const * detectors = pmodule->get_detectors(ndetectors);
+            detector_mapper_pair const * detectors = reinterpret_cast<detector_mapper_pair const*>(pmodule->get_detectors(ndetectors));
 
             auto it_end = _api.end();
 
@@ -1165,16 +1198,20 @@ struct modulus
             auto pdl = std::make_shared<dynamic_library>();
             std::error_code ec;
 
-            std::filesystem::path dlpath(path);
+            fs::path dlpath(path);
 
             if (path.is_relative()) {
-                dlpath = std::filesystem::path(".") / path;
+                dlpath = fs::path(".") / path;
             }
 
             //if (!pdl->open(dlpath, _searchdirs, ec)) {
             if (!pdl->open(dlpath, ec)) {
                 // This is a critical section, so log output must not depends on logger
+#if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+                fprintf(stderr, "%ws: %s\n", dlpath.c_str(), ec.message().c_str());
+#else
                 fprintf(stderr, "%s: %s\n", dlpath.c_str(), ec.message().c_str());
+#endif
                 return module_spec();
             }
 
@@ -1215,7 +1252,7 @@ struct modulus
 
         module_spec module_for_name (std::pair<string_type, string_type> const & name)
         {
-            auto dl_filename = lexical_cast<dynamic_library::string_type>(name.first);
+            auto dl_filename = lexical_cast<fs::path::string_type>(name.first);
             auto modpath = dynamic_library::build_dl_filename(dl_filename);
             return module_for_path(modpath);
         }
