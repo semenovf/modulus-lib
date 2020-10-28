@@ -35,7 +35,11 @@
 
 namespace pfs {
 
-namespace fs = std::filesystem;
+#if defined(PFS_NO_STD_FILESYSTEM)
+    namespace fs = pfs::filesystem;
+#else
+    namespace fs = std::filesystem;
+#endif
 
 template <typename ResultType, typename T>
 struct lexical_caster
