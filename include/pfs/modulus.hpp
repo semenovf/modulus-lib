@@ -32,6 +32,12 @@
 #   include <csignal>
 #endif
 
+#if defined(_WIN32) || defined(_WIN64)
+#   define PFS_EXPORT_MODULE __declspec(dllexport)
+#else
+#   define PFS_EXPORT_MODULE
+#endif
+
 namespace pfs {
 
 #if defined(PFS_NO_STD_FILESYSTEM)
