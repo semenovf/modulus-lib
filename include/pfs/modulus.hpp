@@ -1237,9 +1237,13 @@ struct modulus
             if (!pdl->open(dlpath, ec)) {
                 // This is a critical section, so log output must not depends on logger
 #if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
-                fprintf(stderr, "open module failed: %ws: %s\n", dlpath.c_str(), ec.message().c_str());
+                fprintf(stderr, "open module failed: %ws: %s\n"
+                    , dlpath.c_str()
+                    , pdl->native_error().c_str() /*ec.message().c_str()*/);
 #else
-                fprintf(stderr, "open module failed: %s: %s\n", dlpath.c_str(), ec.message().c_str());
+                fprintf(stderr, "open module failed: %s: %s\n"
+                    , dlpath.c_str()
+                    , pdl->native_error().c_str() /*ec.message().c_str()*/);
 #endif
                 return module_spec{};
             }
