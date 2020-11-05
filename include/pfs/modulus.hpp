@@ -1199,7 +1199,8 @@ struct modulus
             return true;
         }
 
-        module_spec module_for_path (fs::path const & path)
+        template <typename PathIt>
+        module_spec module_for_path (fs::path const & path, PathIt first, PathIt last)
         {
             static char const * module_ctor_name = "__module_ctor__";
             static char const * module_dtor_name = "__module_dtor__";
@@ -1210,18 +1211,37 @@ struct modulus
             fs::path dlpath(path);
 
             if (path.is_relative()) {
-                dlpath = fs::path(".") / path;
+                if (first == last) {
+                    dlpath = fs::path(".") / path;
+                } else {
+                    while (first != last) {
+                        if (fs::exists(*first / path)) {
+                            dlpath = *first / path;
+                            break;
+                        }
+                        ++first;
+                    }
+                }
+            }
+
+            if (!fs::exists(dlpath)) {
+#if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+                fprintf(stderr, "module not found: %ws\n", dlpath.c_str());
+#else
+                fprintf(stderr, "module not found: %s\n", dlpath.c_str());
+#endif
+                return module_spec{};
             }
 
             //if (!pdl->open(dlpath, _searchdirs, ec)) {
             if (!pdl->open(dlpath, ec)) {
                 // This is a critical section, so log output must not depends on logger
 #if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
-                fprintf(stderr, "%ws: %s\n", dlpath.c_str(), ec.message().c_str());
+                fprintf(stderr, "open module failed: %ws: %s\n", dlpath.c_str(), ec.message().c_str());
 #else
-                fprintf(stderr, "%s: %s\n", dlpath.c_str(), ec.message().c_str());
+                fprintf(stderr, "open module failed: %s: %s\n", dlpath.c_str(), ec.message().c_str());
 #endif
-                return module_spec();
+                return module_spec{};
             }
 
             dynamic_library::symbol_type ctor = pdl->resolve(module_ctor_name, ec);
@@ -1231,7 +1251,7 @@ struct modulus
                         , string_type(": failed to resolve `ctor' for module: ")
                         , ec.message()));
 
-                return module_spec();
+                return module_spec{};
             }
 
             dynamic_library::symbol_type dtor = pdl->resolve(module_dtor_name, ec);
@@ -1241,7 +1261,7 @@ struct modulus
                         , string_type(": failed to resolve `dtor' for module: ")
                         , ec.message()));
 
-                return module_spec();
+                return module_spec{};
             }
 
             module_ctor_t module_ctor = void_func_ptr_cast<module_ctor_t>(ctor);
@@ -1250,7 +1270,7 @@ struct modulus
             basic_module * ptr = module_ctor();
 
             if (!ptr)
-                return module_spec();
+                return module_spec{};
 
             module_spec modspec;
             modspec.pdl = pdl;
@@ -1259,11 +1279,13 @@ struct modulus
             return modspec;
         }
 
-        module_spec module_for_name (std::pair<string_type, string_type> const & name)
+        template <typename PathIt>
+        module_spec module_for_name (std::pair<string_type, string_type> const & name
+                , PathIt first, PathIt last)
         {
             auto dl_filename = lexical_cast<fs::path::string_type>(name.first);
             auto modpath = dynamic_library::build_dl_filename(dl_filename);
-            return module_for_path(modpath);
+            return module_for_path<PathIt>(modpath, first, last);
         }
 
     public:
@@ -1281,10 +1303,12 @@ struct modulus
         /**
          * @brief Register module represented as shared object specified by @a path.
          */
+        template <typename PathIt>
         bool register_module_for_path (string_type const & path
-                , std::pair<string_type, string_type> const & name)
+                , std::pair<string_type, string_type> const & name
+                , PathIt first, PathIt last)
         {
-            module_spec modspec = module_for_path(path);
+            module_spec modspec = module_for_path<PathIt>(path, first, last);
 
             if (modspec.pmodule)
                 return register_module_helper(name, modspec);
@@ -1292,19 +1316,34 @@ struct modulus
             return false;
         }
 
+        bool register_module_for_path (string_type const & path
+                , std::pair<string_type, string_type> const & name)
+        {
+            fs::path const * nullpath = nullptr;
+            return register_module_for_path(path, name, nullpath, nullpath);
+        }
+
         /**
          * @brief Register module represented as shared object specified by @a name.
          *
          * @details Actual path for shared object based on @a name constructed
          */
-        bool register_module_for_name (std::pair<string_type, string_type> const & name)
+        template <typename PathIt>
+        bool register_module_for_name (std::pair<string_type, string_type> const & name
+                , PathIt first, PathIt last)
         {
-            module_spec modspec = module_for_name(name);
+            module_spec modspec = module_for_name<PathIt>(name, first, last);
 
             if (modspec.pmodule)
                 return register_module_helper(name, modspec);
 
             return false;
+        }
+
+        bool register_module_for_name (std::pair<string_type, string_type> const & name)
+        {
+            fs::path const * nullpath = nullptr;
+            return register_module_for_name(name, nullpath, nullpath);
         }
 
         /**
