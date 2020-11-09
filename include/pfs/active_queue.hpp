@@ -86,8 +86,9 @@ public:
     template <class F, typename ...Args>
     void push (F && f, Args &&... args)
     {
-        assert(_q.try_push(active_bind(std::forward<F>(f), std::forward<Args>(args)...)
-            , _capacity_inc));
+        auto result = _q.try_push(active_bind(std::forward<F>(f), std::forward<Args>(args)...)
+            , _capacity_inc);
+        assert(result);
     }
 
     void call ()
