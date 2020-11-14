@@ -215,7 +215,8 @@ struct simple_logger
     void error (std::string const & msg) { fprintf(stderr, "ERROR: %s\n", msg.c_str()); }
 };
 
-template <typename LoggerType = simple_logger
+template <bool OldBehaviour = true
+        , typename LoggerType = simple_logger
         , typename StringType = std::string
         , typename SettingsType = default_settings
         , typename TimerPool = default_timer_pool
@@ -245,10 +246,7 @@ struct modulus
     using string_type = StringType;
     using timer_pool_type = TimerPool;
     using timer_id = typename timer_pool_type::timer_id;
-    using mutex_type = BasicLockable;
-    using callback_queue_type = active_queue<ActiveQueueFunctionItem
-        , QueueContainer
-        , BasicLockable>;
+    using callback_queue_type = active_queue<ActiveQueueFunctionItem, QueueContainer>;
 
     using sigslot_ns = sigslot<callback_queue_type, BasicLockable>;
     using emitter_type  = typename sigslot_ns::template signal<>;
@@ -648,7 +646,25 @@ struct modulus
             _slaves.push_back(m);
         }
 
-        virtual int run () = 0;
+        virtual bool on_before_run () { return true; }
+        virtual void on_after_run () {}
+
+        virtual int run ()
+        {
+            if (!on_before_run())
+                return -1;
+
+            auto pqueue = & this->callback_queue();
+            auto wait_period = this->_pdispatcher->wait_period();
+
+            while (! this->is_quit()) {
+                pqueue->wait_for(wait_period);
+                pqueue->call_all();
+            }
+
+            on_after_run();
+            return 0;
+        }
     };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -961,14 +977,22 @@ struct modulus
             auto pqueue = & this->callback_queue();
             pqueue->call_all();
 
-            while (! _quit_flag) {
-                if (pqueue->empty()) {
-                    std::this_thread::sleep_for(std::chrono::microseconds(100));
-                    continue;
-                }
+            if (OldBehaviour) {
+                while (! _quit_flag) {
+                    if (pqueue->empty()) {
+                        std::this_thread::sleep_for(std::chrono::microseconds(100));
+                        continue;
+                    }
 
-                // TODO Make configurable constant (5)
-                pqueue->call(5);
+                    // TODO Make configurable constant (5)
+                    pqueue->call(5);
+                }
+            } else {
+                // New behaviour
+                while (! _quit_flag) {
+                    pqueue->wait_for(_wait_period);
+                    pqueue->call_all();
+                }
             }
 
             // Destroy all timers before modules will destroyed
@@ -1058,6 +1082,16 @@ struct modulus
         bool is_quit () const
         {
             return (_quit_flag.load() != 0);
+        }
+
+        void set_wait_period (intmax_t value)
+        {
+            _wait_period = value;
+        }
+
+        intmax_t wait_period () const noexcept
+        {
+            return _wait_period;
         }
 
         int exec ()
@@ -1588,6 +1622,7 @@ struct modulus
         settings_type *         _psettings {nullptr};
         logger_type *           _plog {nullptr};
         std::unique_ptr<timer_pool_type> _ptimer_pool;
+        intmax_t                _wait_period {10000}; // wait period in microseconds (default is 10 milliseconds)
     }; // class dispatcher
 }; // struct modulus
 

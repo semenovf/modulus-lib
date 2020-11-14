@@ -13,7 +13,6 @@
 #include <condition_variable>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <utility>
 #include <cassert>
 
@@ -35,13 +34,11 @@ inline auto active_bind (F && func, Args &&... args)
 
 template <
       typename FunctionItem = std::function<void ()>
-    , template <typename> class QueueContainer = active_queue_details::default_queue_container
-    , typename BasicLockable = std::mutex>
+    , template <typename> class QueueContainer = active_queue_details::default_queue_container>
 class active_queue
 {
 public:
     using value_type = FunctionItem;
-    using mutex_type = BasicLockable;
     using queue_container_type = QueueContainer<value_type>;
     using size_type = typename queue_container_type::size_type;
     static constexpr size_type default_capacity_increment = 256;
@@ -112,6 +109,19 @@ public:
     {
         while (!this->empty())
             call();
+    }
+
+    void wait ()
+    {
+        _q.wait();
+    }
+
+    void wait_for (intmax_t microseconds)
+    {
+        using rep_type = std::chrono::microseconds::rep;
+        using period_type = std::chrono::microseconds::period;
+
+        _q.template wait_for<rep_type, period_type>(std::chrono::microseconds(microseconds));
     }
 };
 
