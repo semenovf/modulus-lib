@@ -179,8 +179,8 @@ public:
         // Assign an ID and insert it into function storage
         auto id = _next_id++;
 
-        assert(delay * 1000 <= std::numeric_limits<intmax_t>::max());
-        assert(period * 1000 <= std::numeric_limits<intmax_t>::max());
+        assert(delay * 1000 <= static_cast<decltype(delay)>(std::numeric_limits<intmax_t>::max()));
+        assert(period * 1000 <= static_cast<decltype(period)>(std::numeric_limits<intmax_t>::max()));
         auto delay_millis = duration_millis_type(static_cast<intmax_t>(delay * 1000));
         auto period_millis = duration_millis_type(static_cast<intmax_t>(period * 1000));
 

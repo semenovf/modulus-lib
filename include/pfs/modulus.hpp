@@ -38,6 +38,10 @@
 #   define PFS_EXPORT_MODULE
 #endif
 
+#if ANDROID
+#   include <android/log.h>
+#endif
+
 namespace pfs {
 
 #if defined(PFS_NO_STD_FILESYSTEM)
@@ -209,10 +213,32 @@ struct default_settings {};
 
 struct simple_logger
 {
+#if ANDROID
+    void info (std::string const & msg)
+    {
+        __android_log_write(ANDROID_LOG_INFO, "modulus", msg.c_str());
+    }
+
+    void debug (std::string const & msg)
+    {
+        __android_log_write(ANDROID_LOG_DEBUG, "modulus", msg.c_str());
+    }
+
+    void warn (std::string const & msg)
+    {
+        __android_log_write(ANDROID_LOG_WARN, "modulus", msg.c_str());
+    }
+
+    void error (std::string const & msg)
+    {
+        __android_log_write(ANDROID_LOG_ERROR, "modulus", msg.c_str());
+    }
+#else
     void info (std::string const & msg)  { fprintf(stdout, "%s\n", msg.c_str()); }
     void debug (std::string const & msg) { fprintf(stdout, "-- %s\n", msg.c_str()); }
     void warn (std::string const & msg)  { fprintf(stderr, "WARN: %s\n", msg.c_str()); }
     void error (std::string const & msg) { fprintf(stderr, "ERROR: %s\n", msg.c_str()); }
+#endif
 };
 
 template <bool OldBehaviour = true
@@ -1259,7 +1285,10 @@ struct modulus
             }
 
             if (!fs::exists(dlpath)) {
-#if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+#if ANDROID
+                __android_log_print(ANDROID_LOG_ERROR, "modulus"
+                    , "module not found: %s\n", dlpath.c_str());
+#elif (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
                 fprintf(stderr, "module not found: %ws\n", dlpath.c_str());
 #else
                 fprintf(stderr, "module not found: %s\n", dlpath.c_str());
@@ -1270,7 +1299,12 @@ struct modulus
             //if (!pdl->open(dlpath, _searchdirs, ec)) {
             if (!pdl->open(dlpath, ec)) {
                 // This is a critical section, so log output must not depends on logger
-#if (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+#if ANDROID
+                __android_log_print(ANDROID_LOG_ERROR, "modulus"
+                    , "open module failed: %s: %s\n"
+                    , dlpath.c_str()
+                    , pdl->native_error().c_str());
+#elif (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
                 fprintf(stderr, "open module failed: %ws: %s\n"
                     , dlpath.c_str()
                     , pdl->native_error().c_str() /*ec.message().c_str()*/);
