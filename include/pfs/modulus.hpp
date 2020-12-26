@@ -242,8 +242,8 @@ struct simple_logger
 };
 
 template <bool OldBehaviour = true
-        , typename LoggerType = simple_logger
         , typename StringType = std::string
+        , typename LoggerType = simple_logger
         , typename SettingsType = default_settings
         , typename TimerPool = default_timer_pool
 
@@ -620,12 +620,16 @@ struct modulus
             // 1. Launch on_start() method for async module.
             if (!this->on_start_wrapper(settings))
                 ok = false;
+            else
+                this->_pdispatcher->module_started(this->name());
 
             // 2. Launch on_start() methods for slave modules.
             if (ok) {
                 for (auto slave: _slaves) {
                     if (!slave->on_start_wrapper(settings)) {
                         ok = false;
+                    } else {
+                        this->_pdispatcher->module_started(slave->name());
                     }
                 }
             }
@@ -829,6 +833,10 @@ struct modulus
             };
         };
 
+        typename sigslot_ns::template signal<string_type const &> module_registered;
+        typename sigslot_ns::template signal<string_type const &> module_unregistered;
+        typename sigslot_ns::template signal<string_type const &> module_started;
+
     private:
         void connect_all ()
         {
@@ -862,6 +870,8 @@ struct modulus
                 std::shared_ptr<basic_module> & pmodule = modspec.pmodule;
                 log_debug(concat(pmodule->name(), string_type(": unregistered")));
 
+                this->module_unregistered(pmodule->name());
+
                 // Need to destroy pmodule before dynamic library will be
                 // destroyed automatically
                 pmodule.reset();
@@ -890,6 +900,8 @@ struct modulus
                 if (is_regular_module) {
                     if (! pmodule->on_start_wrapper(*_psettings))
                        ok = false;
+                    else
+                        this->module_started(pmodule->name());
                 }
             }
 
@@ -978,11 +990,13 @@ struct modulus
                 std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
                 bool is_dispatcher_slave_module = pmodule->is_slave()
-                            && pmodule->master() == this;
+                    && pmodule->master() == this;
 
                 if (is_dispatcher_slave_module) {
                     if (! pmodule->on_start_wrapper(*_psettings)) {
                         ok = false;
+                    } else {
+                        this->module_started(pmodule->name());
                     }
                 }
             }
@@ -1255,6 +1269,8 @@ struct modulus
 
             _module_spec_map.insert(std::make_pair(pmodule->name(), modspec));
             log_debug(concat(pmodule->name(), string_type(": registered")));
+
+            this->module_registered(pmodule->name());
 
             return true;
         }
@@ -1657,6 +1673,7 @@ struct modulus
         logger_type *           _plog {nullptr};
         std::unique_ptr<timer_pool_type> _ptimer_pool;
         intmax_t                _wait_period {10000}; // wait period in microseconds (default is 10 milliseconds)
+
     }; // class dispatcher
 }; // struct modulus
 
