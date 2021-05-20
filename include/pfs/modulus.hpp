@@ -4,7 +4,7 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs).
+//      2019.12.19 Initial version (inherited from https://github.com/semenovf/pfs).
 //      2020.01.13 Added support for module configuration (pass user data, application settings).
 //      2020.05.21 Added support for dispatcher-dependent slave modules. (v2.1)
 ////////////////////////////////////////////////////////////////////////////////

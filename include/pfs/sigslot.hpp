@@ -4,7 +4,7 @@
 // This file is part of [pfs-modulus](https://github.com/semenovf/pfs-modulus) library.
 //
 // Changelog:
-//      2019.12.19 Initial version (inhereted from https://github.com/semenovf/pfs)
+//      2019.12.19 Initial version (inherited from https://github.com/semenovf/pfs)
 ////////////////////////////////////////////////////////////////////////////////
 #pragma once
 #include <cassert>
