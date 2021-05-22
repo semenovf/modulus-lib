@@ -1182,7 +1182,7 @@ struct modulus
             auto const & module_name = name.first;
             auto const & dep_module_name = name.second;
 
-            if (_module_spec_map.find(pmodule->name()) != _module_spec_map.end()) {
+            if (_module_spec_map.find(module_name) != _module_spec_map.end()) {
                 log_error(concat(pmodule->name()
                     , string_type(": module already registered")));
                 return false;
