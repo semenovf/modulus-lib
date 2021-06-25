@@ -1,3 +1,0 @@
-[submodule "pfs-common"]
-	path = pfs-common
-	url = https://github.com/semenovf/pfs-common.git
