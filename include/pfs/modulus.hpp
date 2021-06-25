@@ -32,10 +32,8 @@
 #   include <csignal>
 #endif
 
-#if defined(_WIN32) || defined(_WIN64)
-#   define PFS_EXPORT_MODULE __declspec(dllexport)
-#else
-#   define PFS_EXPORT_MODULE
+#if _MSC_VER
+#   include "pfs/windows.hpp"
 #endif
 
 #if ANDROID
@@ -75,14 +73,13 @@ struct lexical_caster<std::string, std::string>
     }
 };
 
-#if defined(_WIN32) || defined(_WIN64)
+#if _MSC_VER
 template <>
 struct lexical_caster<std::string, std::wstring>
 {
     static inline std::string cast (std::wstring const & arg)
     {
-        // Use utf8_encode from pfs/dynamic_library.hpp
-        return utf8_encode(arg.c_str(), static_cast<int>(arg.size()));
+        return windows::utf8_encode(arg.c_str(), static_cast<int>(arg.size()));
     }
 };
 
@@ -91,8 +88,7 @@ struct lexical_caster<std::wstring, std::string>
 {
     static inline std::wstring cast (std::string const & arg)
     {
-        // Use utf8_decode from pfs/dynamic_library.hpp
-        return utf8_decode(arg.c_str(), static_cast<int>(arg.size()));
+        return windows::utf8_decode(arg.c_str(), static_cast<int>(arg.size()));
     }
 };
 
@@ -1304,7 +1300,7 @@ struct modulus
 #if ANDROID
                 __android_log_print(ANDROID_LOG_ERROR, "modulus"
                     , "module not found: %s\n", dlpath.c_str());
-#elif (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+#elif _MSC_VER && defined(_UNICODE)
                 fprintf(stderr, "module not found: %ws\n", dlpath.c_str());
 #else
                 fprintf(stderr, "module not found: %s\n", dlpath.c_str());
@@ -1320,7 +1316,7 @@ struct modulus
                     , "open module failed: %s: %s\n"
                     , dlpath.c_str()
                     , pdl->native_error().c_str());
-#elif (defined(_WIN32) || defined(_WIN64)) && defined(_UNICODE)
+#elif _MSC_VER && defined(_UNICODE)
                 fprintf(stderr, "open module failed: %ws: %s\n"
                     , dlpath.c_str()
                     , pdl->native_error().c_str() /*ec.message().c_str()*/);
@@ -1336,7 +1332,9 @@ struct modulus
 
             if (!ctor) {
                 log_error(concat(dlpath.native()
-                        , string_type(": failed to resolve `ctor' for module: ")
+                        , string_type(": failed to resolve constructor `")
+                        , string_type(module_ctor_name)
+                        , string_type("' for module: ")
                         , ec.message()));
 
                 return module_spec{};

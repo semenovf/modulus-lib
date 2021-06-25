@@ -9,14 +9,20 @@
 #include "module.hpp"
 #include "api.hpp"
 
+#if _MSC_VER
+#   define DLL_EXPORT __declspec(dllexport)
+#else
+#   define DLL_EXPORT
+#endif
+
 extern "C" {
 
-modulus::basic_module * __module_ctor__ (void)
+DLL_EXPORT modulus::basic_module * __module_ctor__ (void)
 {
     return new mod::db::module;
 }
 
-void  __module_dtor__ (modulus::basic_module * m)
+DLL_EXPORT void  __module_dtor__ (modulus::basic_module * m)
 {
     delete m;
 }

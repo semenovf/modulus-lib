@@ -1,48 +1,36 @@
+################################################################################
+# Copyright (c) 2019-2021 Vladislav Trifochkin
+#
+# This file is part of [modulus-lib](https://github.com/semenovf/modulus-lib) library.
+#
+# Changelog:
+#      20??.??.?? Initial version
+#      2021.06.25 
+################################################################################
 cmake_minimum_required (VERSION 3.5)
-project(pfs-modulus CXX)
+project(modulus-lib-ALL CXX)
 
-option(${PROJECT_NAME}_BUILD_TESTS "Build tests" OFF)
-option(${PROJECT_NAME}_BUILD_DEMO  "Build demo" OFF)
+option(BUILD_STRICT "Build with strict policies: C++ standard required, C++ extension is OFF etc" ON)
+option(BUILD_TESTS "Build tests" ON)
+option(BUILD_DEMO "Build examples/demo" ON)
+option(ENABLE_COVERAGE "Build tests with coverage support" OFF)
 
-find_package(Threads)
+message(STATUS "C++ compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "C++ compiler version: ${CMAKE_CXX_COMPILER_VERSION}")
 
-################################################################################
-# Find `pfs::common` library root directory and configure it
-################################################################################
-if (NOT TARGET pfs::common)
-    include(${CMAKE_CURRENT_LIST_DIR}/cmake/FindDirectory.cmake)
-    find_directory(pfs-common_DIR
-        FILENAME pfs_common_library.hpp
-        RELATIVE ${CMAKE_CURRENT_LIST_DIR})
-
-    if (NOT pfs-common_DIR)
-        message(FATAL_ERROR "pfs::common library directory not found")
-    endif()
-
-    message(STATUS "pfs::common directory found at: [${pfs-common_DIR}]")
-
-    add_subdirectory(${pfs-common_DIR})
-endif()
-################################################################################
-
-add_library(${PROJECT_NAME} INTERFACE)
-add_library(pfs::modulus ALIAS ${PROJECT_NAME})
-target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)
-target_link_libraries(${PROJECT_NAME} INTERFACE pfs::common Threads::Threads)
-
-if (UNIX)
-    target_link_libraries(${PROJECT_NAME} INTERFACE dl)
+if (BUILD_STRICT)
+    set(CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF) # use -std=c++XX rather than -std=gnu++XX
 endif()
 
-if (MSVC)
-    add_compile_options(-D_UNICODE)
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/3rdparty/pfs/common/library.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/library.cmake)
 
-if (${PROJECT_NAME}_BUILD_TESTS)
+if (BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_LIST_DIR}/tests)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
-if (${PROJECT_NAME}_BUILD_DEMO)
+if (BUILD_DEMO)
     add_subdirectory(demo)
 endif()
