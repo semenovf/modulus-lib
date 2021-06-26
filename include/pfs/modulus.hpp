@@ -1723,3 +1723,9 @@ get_detectors (int & count) override                                           \
     count = sizeof(__detector_mapper)/sizeof(__detector_mapper[0]);            \
     return & __detector_mapper[0];                                             \
 }
+
+#if _MSC_VER
+#   define PFS_EXPORT_MODULE __declspec(dllexport)
+#else
+#   define PFS_EXPORT_MODULE
+#endif
