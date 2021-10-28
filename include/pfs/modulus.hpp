@@ -352,6 +352,7 @@ struct modulus
     class basic_module : public sigslot_ns::basic_slot_holder
     {
         friend class dispatcher;
+        friend class async_module;
 
     public:
         using string_type = StringType;
@@ -362,8 +363,7 @@ struct modulus
         //using detector_mapper_pair = modulus::detector_mapper_pair;
 
         using detector_handler = modulus::detector_handler;
-        using thread_function = int (basic_module::*)(settings_type const &);
-        //using thread_function = modulus::thread_function;
+        using thread_function = typename modulus::thread_function;
 
     protected:
         string_type  _name;
@@ -439,6 +439,26 @@ struct modulus
             _name = name;
         }
 
+        virtual bool on_start_wrapper (settings_type const & settings)
+        {
+            _started = this->on_start(settings);
+
+            if (! _started) {
+                _pdispatcher->log_error(concat(_name
+                    , string_type(": failed to start module")));
+            }
+
+            return _started;
+        }
+
+        virtual void on_finish_wrapper ()
+        {
+            if (! this->on_finish()) {
+                _pdispatcher->log_warn(concat(_name
+                    , string_type(": failed to finalize module")));
+            }
+        }
+
     public:
         virtual ~basic_module () {}
 
@@ -505,29 +525,6 @@ struct modulus
         {
             return true;
         }
-
-        bool on_start_wrapper (settings_type const & settings)
-        {
-            _started = this->on_start(settings);
-
-            if (! _started) {
-                _pdispatcher->log_error(concat(_name
-                    , string_type(": failed to start module")));
-            }
-
-            return _started;
-        }
-
-        bool on_finish_wrapper ()
-        {
-            if (! this->on_finish()) {
-                _pdispatcher->log_warn(concat(_name
-                    , string_type(": failed to finalize module")));
-            }
-
-            return true;
-        }
-
     };// basic_module
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -540,12 +537,12 @@ struct modulus
         {}
 
     public:
-        virtual bool use_queued_slots () const final
+        bool use_queued_slots () const override final
         {
             return false;
         }
 
-        virtual bool is_slave () const final
+        bool is_slave () const override final
         {
             return false;
         }
@@ -561,9 +558,85 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     class async_module : public basic_module
     {
+        friend class dispatcher;
+
         using slaves_sequence_type = SequenceContainer<basic_module *>;
 
         slaves_sequence_type _slaves;
+
+    private:
+        bool on_start_wrapper (settings_type const & settings) override
+        {
+            bool success = true;
+
+            // 1. Launch on_start() method for async module.
+            this->_started = basic_module::on_start_wrapper(settings);
+
+            if (this->_started) {
+                this->_pdispatcher->module_started(this->name());
+            } else  {
+                success = false;
+            }
+
+            // 2. Launch on_start() methods for linked modules.
+            if (success) {
+                for (auto slave: _slaves) {
+                    if (slave->on_start_wrapper(settings)) {
+                        this->_pdispatcher->module_started(slave->name());
+                    } else {
+                        success = false;
+                    }
+                }
+            }
+
+            // 3. Notify dispatcher about starting stage finished
+            // for this module.
+            this->_pdispatcher->notify_module_started(success);
+
+            return success;
+        }
+
+        void on_finish_wrapper () override
+        {
+            for (auto slave: _slaves)
+                slave->on_finish_wrapper();
+
+            basic_module::on_finish_wrapper();
+        }
+
+        // Called from dispatcher
+        int thread_function_wrapper (settings_type const & settings)
+        {
+            // Steps 1, 2, 3
+            if (!on_start_wrapper(settings))
+                return dispatcher::exit_status::failure;
+
+            // 4. Wait special condition (all modules finished starting stage)
+            // from dispatcher.
+            while (!this->_pdispatcher->all_modules_started())
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+            if (! this->_pdispatcher->_atomic_modules_started_successfully.load()) {
+                this->quit();
+                return dispatcher::exit_status::failure;
+            }
+
+            // 5. If OK process deferred (queued events/callbacks) and for
+            // receiving quit() if starting failure.
+            process_events();
+
+            if (this->is_quit())
+                return dispatcher::exit_status::failure;
+
+            auto rc = run();
+
+            // Process remaining events
+            process_events();
+
+            on_finish_wrapper();
+
+            return dispatcher::exit_status::success;
+        }
 
     public:
         async_module () : basic_module()
@@ -571,12 +644,12 @@ struct modulus
             this->_queue_ptr = make_unique<callback_queue_type>();
         }
 
-        virtual bool use_queued_slots () const final
+        bool use_queued_slots () const override final
         {
             return true;
         }
 
-        virtual bool is_slave () const final
+        virtual bool is_slave () const override final
         {
             return false;
         }
@@ -608,72 +681,18 @@ struct modulus
             return !this->callback_queue().empty();
         }
 
-        int thread_function_wrapper (settings_type const & settings)
-        {
-            int rc = dispatcher::exit_status::failure;
-            bool ok = true;
-
-            // 1. Launch on_start() method for async module.
-            if (!this->on_start_wrapper(settings))
-                ok = false;
-            else
-                this->_pdispatcher->module_started(this->name());
-
-            // 2. Launch on_start() methods for slave modules.
-            if (ok) {
-                for (auto slave: _slaves) {
-                    if (!slave->on_start_wrapper(settings)) {
-                        ok = false;
-                    } else {
-                        this->_pdispatcher->module_started(slave->name());
-                    }
-                }
-            }
-
-            // 3. Notify dispatcher about starting stage finished
-            // for this module.
-            this->_pdispatcher->notify_module_started(ok);
-
-            // 4. Wait special condition (all modules finished starting stage)
-            // from dispatcher.
-            while (!this->_pdispatcher->all_modules_started())
-                std::this_thread::sleep_for(std::chrono::microseconds(100));
-
-            if (!  this->_pdispatcher->_atomic_modules_started_successfully.load()) {
-                this->quit();
-                return dispatcher::exit_status::failure;
-            }
-
-            // 5. If OK process deferred (queued events/callbacks) and for
-            // receiving quit() if starting failure.
-            process_events();
-
-            if (this->is_quit())
-                return dispatcher::exit_status::failure;
-
-            rc = run();
-
-            // Process remaining events
-            process_events();
-
-            for (auto slave: _slaves) {
-                if (!slave->on_finish_wrapper()) {
-                    ok = false;
-                }
-            }
-
-            this->on_finish_wrapper();
-
-            return rc;
-        }
-
         void add_slave (basic_module * m)
         {
             _slaves.push_back(m);
         }
 
-        virtual bool on_before_run () { return true; }
-        virtual void on_after_run () {}
+        virtual bool on_before_run ()
+        {
+            return true;
+        }
+
+        virtual void on_after_run ()
+        {}
 
         virtual int run ()
         {
@@ -698,19 +717,20 @@ struct modulus
 ////////////////////////////////////////////////////////////////////////////////
     class slave_module : public basic_module
     {
-        //async_module * _master = nullptr;
+        friend class async_module;
+
         typename sigslot_ns::basic_slot_holder * _master {nullptr};
 
     public:
         slave_module () : basic_module()
         {}
 
-        virtual bool use_queued_slots () const final
+        bool use_queued_slots () const override final
         {
             return false;
         }
 
-        virtual bool is_slave () const final
+        bool is_slave () const override final
         {
             return true;
         }
@@ -880,36 +900,43 @@ struct modulus
         {
             assert(_psettings);
 
-            bool ok = true;
+            bool success = true;
 
-            auto first = _module_spec_map.begin();
-            auto last  = _module_spec_map.end();
+            // Launch `on_start` method for master module (if specified)
+            // and his linked modules (see `thread_function_wrapper` also)
+            if (_main_module_ptr)
+                success = _main_module_ptr->on_start_wrapper(*_psettings);
 
-            // Launch on_start() method for regular modules
-            for (; first != last; ++first) {
-                module_spec modspec = first->second;
-                std::shared_ptr<basic_module> pmodule = modspec.pmodule;
+            if (success) {
+                auto first = _module_spec_map.begin();
+                auto last  = _module_spec_map.end();
 
-                bool is_regular_module = !pmodule->is_slave()
-                    && !pmodule->use_queued_slots();
+                // Launch `on_start` method for regular modules
+                for (; first != last; ++first) {
+                    module_spec modspec = first->second;
+                    std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
-                if (is_regular_module) {
-                    if (! pmodule->on_start_wrapper(*_psettings))
-                       ok = false;
-                    else
-                        this->module_started(pmodule->name());
+                    bool is_regular_module = !pmodule->is_slave()
+                        && !pmodule->use_queued_slots();
+
+                    if (is_regular_module) {
+                        if (! pmodule->on_start_wrapper(*_psettings))
+                            success = false;
+                        else
+                            this->module_started(pmodule->name());
+                    }
                 }
             }
 
             // Redirect log ouput.
-            if (ok) {
+            if (success) {
                 info_printer  = & dispatcher::async_print_info;
                 debug_printer = & dispatcher::async_print_debug;
                 warn_printer  = & dispatcher::async_print_warn;
                 error_printer = & dispatcher::async_print_error;
             }
 
-            return ok;
+            return success;
         }
 
         void finalize (bool was_success_start)
@@ -935,8 +962,8 @@ struct modulus
                     module_spec & modspec = imodule->second;
 
                     // Launch on_finish() method for regular and dispatcher's
-                    // slave modules. Async and slave modules finalized at async
-                    // module's thread function
+                    // linked modules. Async modules with linked modules
+                    // finalized at async module's thread function
                     if (modspec.pmodule->is_started()) {
 
                         bool is_regular_module = !modspec.pmodule->is_slave()
@@ -956,6 +983,12 @@ struct modulus
                             //      static_cast<async_module *>(modspec.pmodule.get())->call_all();
 
                             modspec.pmodule->on_finish_wrapper();
+                        }
+
+                        // Launch on_finish() method for main module and it's
+                        // linked modules.
+                        if (_main_module_ptr) {
+                            _main_module_ptr->on_finish_wrapper();
                         }
                     }
                 }
@@ -980,7 +1013,7 @@ struct modulus
 
             bool ok = true;
 
-            // 1. Launch on_start() method for dispatcher's slave modules
+            // 1. Launch `on_start` method for dispatcher's slave modules
             for (; first != last; ++first) {
                 module_spec modspec = first->second;
                 std::shared_ptr<basic_module> pmodule = modspec.pmodule;
@@ -1065,7 +1098,11 @@ struct modulus
                 std::thread dthread(& dispatcher::run, this);
 
                 // And call master function
-                r = (_main_module_ptr->*master_thread_function)(*_psettings);
+                // r = (_main_module_ptr->*master_thread_function)(*_psettings);
+                // FIXME
+                if (_main_module_ptr->use_queued_slots()) {
+                    r = static_cast<async_module *>(_main_module_ptr)->run();
+                }
 
                 dthread.join();
             } else {
