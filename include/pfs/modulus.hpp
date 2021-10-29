@@ -984,14 +984,13 @@ struct modulus
 
                             modspec.pmodule->on_finish_wrapper();
                         }
-
-                        // Launch on_finish() method for main module and it's
-                        // linked modules.
-                        if (_main_module_ptr) {
-                            _main_module_ptr->on_finish_wrapper();
-                        }
                     }
                 }
+
+                // Launch on_finish() method for main module and it's
+                // linked modules.
+                if (_main_module_ptr)
+                    _main_module_ptr->on_finish_wrapper();
 
                 disconnect_all();
                 unregister_all();
@@ -1079,27 +1078,21 @@ struct modulus
             auto runnable_it   = _runnable_modules.begin();
             auto runnable_last = _runnable_modules.end();
 
-            thread_function master_thread_function = 0;
-
             for (; runnable_it != runnable_last; ++runnable_it) {
                 basic_module * m = runnable_it->first;
                 thread_function tfunc = runnable_it->second;
 
-                // Run module if it is not a master
+                // Run module if it is not a main module
                 if (m != _main_module_ptr)
                     thread_pool.emplace_back(new std::thread(tfunc, m, *_psettings));
-                else
-                    master_thread_function = tfunc;
             }
 
-            // Run module if it is a master
-            if (master_thread_function) {
+            // Run module if it is a main module
+            if (_main_module_ptr) {
                 // Run dispatcher loop in separate thread
                 std::thread dthread(& dispatcher::run, this);
 
-                // And call master function
-                // r = (_main_module_ptr->*master_thread_function)(*_psettings);
-                // FIXME
+                // And call main module function
                 if (_main_module_ptr->use_queued_slots()) {
                     r = static_cast<async_module *>(_main_module_ptr)->run();
                 }
