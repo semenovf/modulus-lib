@@ -12,6 +12,7 @@
 #include "active_queue.hpp"
 #include "sigslot.hpp"
 #include "timer.hpp"
+#include "pfs/fmt.hpp"
 #include "pfs/filesystem.hpp"
 #include "pfs/dynamic_library.hpp"
 #include <algorithm>
@@ -41,12 +42,6 @@
 #endif
 
 namespace pfs {
-
-#if defined(PFS_NO_STD_FILESYSTEM)
-    namespace fs = pfs::filesystem;
-#else
-    namespace fs = std::filesystem;
-#endif
 
 template <typename ResultType, typename T>
 struct lexical_caster
@@ -114,12 +109,13 @@ class basic_dispatcher
 {
 #if _POSIX_C_SOURCE
     std::vector<int> _quit_signums{
-              SIGHUP
-            , SIGINT
-            , SIGQUIT
-            , SIGILL
-            , SIGABRT
-            , SIGFPE};
+          SIGHUP
+        , SIGINT
+        , SIGQUIT
+        , SIGILL
+        , SIGABRT
+        , SIGFPE
+    };
 #endif
 
 public:
@@ -321,7 +317,7 @@ struct modulus
     struct module_spec
     {
         std::shared_ptr<basic_module>    pmodule;
-        std::shared_ptr<dynamic_library> pdl;
+        std::shared_ptr<pfs::dynamic_library> pdl;
     };
 
     struct module_deleter
@@ -902,31 +898,29 @@ struct modulus
 
             bool success = true;
 
-            // Launch `on_start` method for master module (if specified)
-            // and his linked modules (see `thread_function_wrapper` also)
-            if (_main_module_ptr)
-                success = _main_module_ptr->on_start_wrapper(*_psettings);
+            // Launch `on_start` method for regular modules
+            auto first = _module_spec_map.begin();
+            auto last  = _module_spec_map.end();
 
-            if (success) {
-                auto first = _module_spec_map.begin();
-                auto last  = _module_spec_map.end();
+            for (; first != last; ++first) {
+                module_spec modspec = first->second;
+                std::shared_ptr<basic_module> pmodule = modspec.pmodule;
 
-                // Launch `on_start` method for regular modules
-                for (; first != last; ++first) {
-                    module_spec modspec = first->second;
-                    std::shared_ptr<basic_module> pmodule = modspec.pmodule;
+                bool is_regular_module = !pmodule->is_slave()
+                    && !pmodule->use_queued_slots();
 
-                    bool is_regular_module = !pmodule->is_slave()
-                        && !pmodule->use_queued_slots();
-
-                    if (is_regular_module) {
-                        if (! pmodule->on_start_wrapper(*_psettings))
-                            success = false;
-                        else
-                            this->module_started(pmodule->name());
-                    }
+                if (is_regular_module) {
+                    if (! pmodule->on_start_wrapper(*_psettings))
+                        success = false;
+                    else
+                        this->module_started(pmodule->name());
                 }
             }
+
+            // Launch `on_start` method for master module (if specified)
+            // and his linked modules (see `thread_function_wrapper` also)
+            if (success && _main_module_ptr)
+                success = _main_module_ptr->on_start_wrapper(*_psettings);
 
             // Redirect log ouput.
             if (success) {
@@ -1302,15 +1296,12 @@ struct modulus
         }
 
         template <typename PathIt>
-        module_spec module_for_path (fs::path const & path, PathIt first, PathIt last)
+        module_spec module_for_path (filesystem::path const & path, PathIt first, PathIt last)
         {
             static char const * module_ctor_name = "__module_ctor__";
             static char const * module_dtor_name = "__module_dtor__";
 
-            auto pdl = std::make_shared<dynamic_library>();
-            std::error_code ec;
-
-            fs::path dlpath(path);
+            filesystem::path dlpath(path);
 
             if (path.is_relative()) {
                 if (first == last) {
@@ -1326,62 +1317,61 @@ struct modulus
                 }
             }
 
-            if (!fs::exists(dlpath)) {
+            if (!filesystem::exists(dlpath)) {
 #if ANDROID
                 __android_log_print(ANDROID_LOG_ERROR, "modulus"
                     , "module not found: %s\n", dlpath.c_str());
-#elif _MSC_VER && defined(_UNICODE)
-                fprintf(stderr, "module not found: %ws\n", dlpath.c_str());
 #else
-                fprintf(stderr, "module not found: %s\n", dlpath.c_str());
+                fmt::print(stderr, "module not found: {}\n", filesystem::utf8_encode(dlpath));
 #endif
                 return module_spec{};
             }
 
-            //if (!pdl->open(dlpath, _searchdirs, ec)) {
-            if (!pdl->open(dlpath, ec)) {
+
+            pfs::error err;
+            auto pdl = std::make_shared<pfs::dynamic_library>(dlpath, & err);
+
+            if (!*pdl) {
                 // This is a critical section, so log output must not depends on logger
 #if ANDROID
                 __android_log_print(ANDROID_LOG_ERROR, "modulus"
                     , "open module failed: %s: %s\n"
                     , dlpath.c_str()
-                    , pdl->native_error().c_str());
+                    , err.what().c_str());
 #elif _MSC_VER && defined(_UNICODE)
                 fprintf(stderr, "open module failed: %ws: %s\n"
                     , dlpath.c_str()
                     , pdl->native_error().c_str() /*ec.message().c_str()*/);
 #else
-                fprintf(stderr, "open module failed: %s: %s\n"
-                    , dlpath.c_str()
-                    , pdl->native_error().c_str() /*ec.message().c_str()*/);
+            fmt::print(stderr, "open module failed: {}: {}\n"
+                , filesystem::utf8_encode(dlpath)
+                , err.what());
+
 #endif
                 return module_spec{};
             }
 
-            dynamic_library::symbol_type ctor = pdl->resolve(module_ctor_name, ec);
+            auto module_ctor = pdl->resolve<basic_module*(void)>(module_ctor_name, & err);
 
-            if (!ctor) {
+            if (err) {
                 log_error(concat(dlpath.native()
-                        , string_type(": failed to resolve constructor `")
-                        , string_type(module_ctor_name)
-                        , string_type("' for module: ")
-                        , ec.message()));
+                    , string_type(": failed to resolve constructor `")
+                    , string_type(module_ctor_name)
+                    , string_type("' for module: ")
+                    , err.what()));
 
                 return module_spec{};
             }
 
-            dynamic_library::symbol_type dtor = pdl->resolve(module_dtor_name, ec);
+            auto module_dtor = pdl->resolve<void(basic_module *)>(module_dtor_name, & err);
 
-            if (!dtor) {
+            if (err) {
                 log_error(concat(dlpath.native()
-                        , string_type(": failed to resolve `dtor' for module: ")
-                        , ec.message()));
+                    , string_type(": failed to resolve `dtor' for module: ")
+                    , err.what()));
 
                 return module_spec{};
             }
-
-            module_ctor_t module_ctor = void_func_ptr_cast<module_ctor_t>(ctor);
-            module_dtor_t module_dtor = void_func_ptr_cast<module_dtor_t>(dtor);
 
             basic_module * ptr = module_ctor();
 
@@ -1399,8 +1389,8 @@ struct modulus
         module_spec module_for_name (std::pair<string_type, string_type> const & name
                 , PathIt first, PathIt last)
         {
-            auto dl_filename = lexical_cast<fs::path::string_type>(name.first);
-            auto modpath = dynamic_library::build_dl_filename(dl_filename);
+            auto dl_filename = lexical_cast<std::string>(name.first);
+            auto modpath = pfs::dynamic_library::build_filename(dl_filename);
             return module_for_path<PathIt>(modpath, first, last);
         }
 
