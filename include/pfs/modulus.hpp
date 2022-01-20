@@ -731,7 +731,7 @@ struct modulus
             return true;
         }
 
-        virtual typename sigslot_ns::basic_slot_holder * master () const
+        typename sigslot_ns::basic_slot_holder * master () const override
         {
             return _master;
         }
