@@ -15,6 +15,6 @@ if (NOT TARGET pfs::common)
         ${CMAKE_CURRENT_LIST_DIR}/3rdparty/pfs/common/library.cmake)
 endif()
 
-portable_target(LIBRARY ${PROJECT_NAME} INTERFACE ALIAS pfs::modulus)
+portable_target(ADD_INTERFACE ${PROJECT_NAME} ALIAS pfs::modulus)
 portable_target(INCLUDE_DIRS ${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)
 portable_target(LINK ${PROJECT_NAME} pfs::common)
