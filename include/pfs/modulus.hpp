@@ -1328,47 +1328,43 @@ struct modulus
             }
 
 
-            pfs::error err;
-            auto pdl = std::make_shared<pfs::dynamic_library>(dlpath, & err);
+            std::error_code ec;
+            auto pdl = std::make_shared<pfs::dynamic_library>(dlpath, ec);
 
-            if (!*pdl) {
+            if (ec) {
                 // This is a critical section, so log output must not depends on logger
 #if ANDROID
                 __android_log_print(ANDROID_LOG_ERROR, "modulus"
                     , "open module failed: %s: %s\n"
                     , dlpath.c_str()
-                    , err.what().c_str());
-#elif _MSC_VER && defined(_UNICODE)
-                fprintf(stderr, "open module failed: %ws: %s\n"
-                    , dlpath.c_str()
-                    , pdl->native_error().c_str() /*ec.message().c_str()*/);
+                    , ec.message().c_str());
 #else
             fmt::print(stderr, "open module failed: {}: {}\n"
                 , filesystem::utf8_encode(dlpath)
-                , err.what());
+                , ec.message());
 
 #endif
                 return module_spec{};
             }
 
-            auto module_ctor = pdl->resolve<basic_module*(void)>(module_ctor_name, & err);
+            auto module_ctor = pdl->resolve<basic_module*(void)>(module_ctor_name, ec);
 
-            if (err) {
+            if (ec) {
                 log_error(concat(dlpath.native()
                     , string_type(": failed to resolve constructor `")
                     , string_type(module_ctor_name)
                     , string_type("' for module: ")
-                    , err.what()));
+                    , ec.message()));
 
                 return module_spec{};
             }
 
-            auto module_dtor = pdl->resolve<void(basic_module *)>(module_dtor_name, & err);
+            auto module_dtor = pdl->resolve<void(basic_module *)>(module_dtor_name, ec);
 
-            if (err) {
+            if (ec) {
                 log_error(concat(dlpath.native()
                     , string_type(": failed to resolve `dtor' for module: ")
-                    , err.what()));
+                    , ec.message()));
 
                 return module_spec{};
             }
